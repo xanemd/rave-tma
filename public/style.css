@@ -223,9 +223,9 @@ input {
   align-items: center;
   justify-content: center;
   /* Фиксированная высота — не уменьшается при открытии клавиатуры */
-  height: var(--player-h, 260px);
-  min-height: 200px;
-  max-height: 320px;
+  height: var(--player-h, 220px);
+  min-height: 180px;
+  max-height: 260px;
   overflow: hidden;
 }
 

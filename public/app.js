@@ -180,7 +180,7 @@ function initTelegram() {
     const stableH = (typeof tg.viewportStableHeight === 'number' && tg.viewportStableHeight > 0)
       ? tg.viewportStableHeight
       : window.innerHeight;
-    const playerH = Math.min(Math.max(stableH * 0.48, 200), 320);
+    const playerH = Math.min(Math.max(stableH * 0.35, 180), 260);
     document.documentElement.style.setProperty('--player-h', playerH + 'px');
   };
   setPlayerHeight();
@@ -959,7 +959,6 @@ function emitIfNeeded(eventName, payload) {
   // Только хост может управлять видео (как в Rave)
   if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA'].includes(eventName)) {
     console.warn('[Emit] Гость не может управлять видео:', eventName);
-    showSnack('⚠️ Только хост может управлять видео');
     return;
   }
   if (!state.socket || !state.connected || state.isHost === null) {
@@ -971,7 +970,6 @@ function emitIfNeeded(eventName, payload) {
 
   if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA'].includes(eventName)) {
     console.warn('[Emit] Гость не может управлять видео:', eventName);
-    showSnack('⚠️ Только хост может управлять видео');
     return;
   }
 
@@ -1049,7 +1047,7 @@ function withRemoteFlag(fn) {
   } finally {
     setTimeout(() => {
       state.applyingRemote = false;
-    }, 50);
+    }, 500);
   }
 }
 
@@ -1321,6 +1319,7 @@ function startSyncLoop() {
   syncInterval = setInterval(() => {
     if (!state.socket || !state.connected) return;
     if (state.applyingRemote) return;
+    if (!state.isHost) return; // только хост отправляет синхрон-события
 
     const type = state.currentType;
     if (type !== SOURCE_TYPES.YOUTUBE && type !== SOURCE_TYPES.NATIVE && type !== SOURCE_TYPES.HLS) {
