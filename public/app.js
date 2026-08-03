@@ -56,6 +56,10 @@ const state = {
 
   // Чат
   messages: [],
+
+  // Rave-система
+  isHost: false,
+  queue: [],
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -674,6 +678,59 @@ function connectSocket() {
 
   s.on('hello', (data) => {
     console.log('[Socket] hello →', data);
+    state.isHost = !!data.isHost;
+    updateHostUI();
+  });
+
+  // ── Полное состояние комнаты (как в Rave) ─────────────────
+  s.on('ROOM_STATE', (data) => {
+    console.log('[Socket] ROOM_STATE ←', data);
+
+    if (data.currentUrl && data.currentUrl !== state.currentUrl) {
+      loadMedia(data.currentUrl, {
+        emit: false,
+        autoplay: data.isPlaying,
+        incoming: true,
+      });
+
+      // Применяем позицию после загрузки
+      if (typeof data.position === 'number' && data.position > 0) {
+        setTimeout(() => {
+          handleRemoteSeek({
+            mediaType: data.currentType || state.currentType,
+            url: data.currentUrl,
+            time: data.position,
+          });
+        }, 700);
+      }
+    }
+
+    // Очередь
+    if (Array.isArray(data.queue)) {
+      state.queue = data.queue;
+      renderQueue();
+    }
+  });
+
+  // ── Смена хоста ────────────────────────────────────────────
+  s.on('HOST_CHANGED', ({ hostId }) => {
+    console.log('[Socket] HOST_CHANGED ←', hostId);
+    state.isHost = hostId === state.socket.id;
+    updateHostUI();
+    showSnack(state.isHost ? '👑 Вы теперь хост' : '👑 Хост сменился');
+  });
+
+  // ── Очередь обновлена ──────────────────────────────────────
+  s.on('QUEUE_UPDATED', ({ queue }) => {
+    console.log('[Socket] QUEUE_UPDATED ←', queue);
+    state.queue = Array.isArray(queue) ? queue : [];
+    renderQueue();
+  });
+
+  // ── Ошибка (например, гость пытается управлять видео) ─────
+  s.on('ERROR', ({ message }) => {
+    console.warn('[Socket] ERROR ←', message);
+    showSnack('⚠️ ' + message);
   });
 
   // ── Запрос состояния от нового участника ─────────────────
@@ -728,6 +785,11 @@ function connectSocket() {
     showSnack('👋 Участник покинул комнату');
   });
 
+  s.on('USER_JOINED', ({ id, isHost, viewers }) => {
+    console.log('[Sync] USER_JOINED ←', id, '| viewers:', viewers);
+    showSnack('👤 Новый участник в комнате');
+  });
+
   s.on('PEERS', ({ peers, count }) => {
     console.log('[Sync] PEERS ←', peers, '| count:', count);
     state.peers = peers.map((id, i) => ({
@@ -758,6 +820,11 @@ function connectSocket() {
 function emitIfNeeded(eventName, payload) {
   if (state.applyingRemote) {
     console.log('[Emit] Пропуск (applyingRemote)', eventName);
+    return;
+  }
+  // Только хост может управлять видео (как в Rave)
+  if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA'].includes(eventName)) {
+    console.warn('[Emit] Гость не может управлять видео:', eventName);
     return;
   }
   state.socket.emit(eventName, {
@@ -1122,6 +1189,36 @@ function updatePeersCount() {
   }
 }
 
+function updateHostUI() {
+  // Показываем/скрываем кнопку «Сменить видео» в зависимости от роли
+  if (els.changeMediaBtn) {
+    els.changeMediaBtn.style.display = state.isHost ? '' : 'none';
+  }
+  // Обновляем подпись в панели
+  const hostLabel = document.getElementById('hostLabel');
+  if (hostLabel) {
+    hostLabel.textContent = state.isHost ? '👑 Вы хост' : '👤 Вы гость';
+  }
+}
+
+function renderQueue() {
+  const queueList = document.getElementById('queueList');
+  if (!queueList) return;
+
+  if (state.queue.length === 0) {
+    queueList.innerHTML = '<div class="queue-empty">Очередь пуста</div>';
+    return;
+  }
+
+  queueList.innerHTML = state.queue.map((item, i) => `
+    <div class="queue-item">
+      <span class="queue-icon">🎬</span>
+      <span class="queue-name">${escapeHtml(formatTitle(item.url))}</span>
+      ${state.isHost ? `<button class="queue-remove" data-index="${i}" type="button">✕</button>` : ''}
+    </div>
+  `).join('');
+}
+
 function renderDrawerPeers() {
   if (!els.drawerPeers) return;
 
@@ -1362,6 +1459,19 @@ function bindUI() {
     state.socket.emit('GET_PEERS');
     openDrawer();
   });
+
+  // Очередь: удаление элемента
+  const queueList = document.getElementById('queueList');
+  if (queueList) {
+    queueList.addEventListener('click', (event) => {
+      const btn = event.target.closest('.queue-remove');
+      if (!btn) return;
+      const index = Number(btn.dataset.index);
+      if (Number.isInteger(index)) {
+        state.socket.emit('REMOVE_FROM_QUEUE', { index });
+      }
+    });
+  }
 
   // Чат
   els.chatSendBtn.addEventListener('click', sendChatMessage);

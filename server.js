@@ -2,31 +2,21 @@
  * RAVE TMA — Telegram Mini App
  * Сервер синхронизации для совместного просмотра видео
  *
+ * Архитектура как в Rave:
+ *  - Сервер хранит состояние комнаты (текущее видео, позиция, isPlaying)
+ *  - Серверное время — эталон для синхронизации
+ *  - Первый участник комнаты = хост (только он может менять видео)
+ *  - Новый гость получает полное состояние комнаты при подключении
+ *  - Очередь видео (хост может добавить несколько)
+ *
  * ─────────────────────────────────────────────────────────────
  * 1) ЛОКАЛЬНЫЙ ЗАПУСК:
  *    npm install && node server.js
  *    Затем открой http://localhost:3000 (или порт из process.env.PORT)
  *
- * 2) ДЕПЛОЙ НА RENDER.COM (бесплатный хостинг):
- *    a. Зальём проект в GitHub-репозиторий (или используем "Public Git repository").
- *    b. На Render.com: New → Web Service → подключить репозиторий.
- *    c. Настройки:
- *       - Build Command:   (пусто, т.к. зависимостей для сборки нет)
- *       - Start Command:   npm start
- *       - Environment:     Node
- *       Render автоматически подставит process.env.PORT, а статику
- *       сервер раздаёт из папки public/.
- *    d. После деплоя получим HTTPS URL вида https://rave-tma.onrender.com
- *
- * 3) ПРИВЯЗКА К TELEGRAM-БОТУ ЧЕРЕЗ @BotFather:
- *    a. Откройте @BotFather в Telegram.
- *    b. Команда /newapp → создайте новое приложение (Mini App).
- *    c. Укажите HTTPS URL вашего деплоя (например https://rave-tma.onrender.com).
- *    d. BotFather выдаст токен бота и id Mini App.
- *    e. Пропишите токен через /settoken и настройте кнопку меню / кнопку
- *       клавиатуры через /mybots → ваш бот → Bot Settings.
- *    f. Готово — при нажатии на кнопку у пользователя откроется ваш TMA,
- *       а Telegram WebApp SDK автоматически передаст initData / user info.
+ * 2) ДЕПЛОЙ НА RENDER.COM / RAILWAY:
+ *    Залить проект в GitHub → подключить на хостинге.
+ *    Start Command: npm start
  * ─────────────────────────────────────────────────────────────
  */
 
@@ -38,7 +28,6 @@ const { Server } = require('socket.io');
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
-  // Для корректной работы за прокси (Render / Railway / Nginx)
   transports: ['websocket', 'polling'],
   cors: {
     origin: '*',
@@ -51,135 +40,309 @@ const io = new Server(server, {
 // ─────────────────────────────────────────────────────────────
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Корневой маршрут — просто отдаём index.html (уже покрыто статикой,
-// но добавим явно для надёжности и читаемости).
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // ─────────────────────────────────────────────────────────────
-// КОМНАТЫ
+// КОМНАТЫ И СОСТОЯНИЕ
 // ─────────────────────────────────────────────────────────────
-// Правила:
-//  - room_id по умолчанию = "main_room"
-//  - клиент может передать room_id через query-параметр ?room=xxx
-//    (например ссылка-приглашение из Telegram: ?startapp=room_abc)
-//  - Если room_id пришёл от Telegram (start_param в initDataUnsafe),
-//    клиент сам подставит его в URL и подключится с ним.
 const DEFAULT_ROOM = 'main_room';
 
-// Служебная статистика комнат (для отладки / будущего расширения)
-const roomsMeta = new Map();
+// Состояние каждой комнаты:
+// {
+//   hostId: socket.id хоста,
+//   currentUrl: '',
+//   currentType: null,
+//   isPlaying: false,
+//   position: 0,          // позиция в момент паузы (сек)
+//   startedAt: 0,         // серверное время начала воспроизведения (мс)
+//   queue: [],            // очередь видео [{url, type}]
+//   viewers: 0,
+//   messages: [],         // история чата
+//   createdAt: Date.now()
+// }
+const rooms = new Map();
+
+function getRoom(roomId) {
+  if (!rooms.has(roomId)) {
+    rooms.set(roomId, {
+      hostId: null,
+      currentUrl: '',
+      currentType: null,
+      isPlaying: false,
+      position: 0,
+      startedAt: 0,
+      queue: [],
+      viewers: 0,
+      messages: [],
+      createdAt: Date.now(),
+    });
+  }
+  return rooms.get(roomId);
+}
+
+/**
+ * Вычисляет текущую позицию видео по серверному времени.
+ * Если видео играет: position + (now - startedAt) / 1000
+ * Если на паузе: position
+ */
+function getCurrentPosition(room) {
+  if (room.isPlaying && room.startedAt > 0) {
+    return room.position + (Date.now() - room.startedAt) / 1000;
+  }
+  return room.position;
+}
+
+/**
+ * Полное состояние комнаты для нового гостя.
+ */
+function getRoomState(room) {
+  return {
+    hostId: room.hostId,
+    currentUrl: room.currentUrl,
+    currentType: room.currentType,
+    isPlaying: room.isPlaying,
+    position: getCurrentPosition(room),
+    queue: room.queue,
+    viewers: room.viewers,
+  };
+}
 
 io.on('connection', (socket) => {
-  // ── Определяем комнату ─────────────────────────────────────
   const roomId = sanitizeRoom(socket.handshake.query.room) || DEFAULT_ROOM;
   socket.join(roomId);
 
-  // Метаданные подключения (для логов и подсчёта зрителей)
-  const clientInfo = {
-    id: socket.id,
-    userAgent: socket.handshake.headers['user-agent'] || 'unknown',
-    connectedAt: Date.now()
-  };
+  const room = getRoom(roomId);
+  room.viewers += 1;
 
-  if (!roomsMeta.has(roomId)) {
-    roomsMeta.set(roomId, { viewers: 0, createdAt: Date.now() });
+  // ── Роль хоста: первый участник комнаты становится хостом ──
+  const isHost = !room.hostId;
+  if (isHost) {
+    room.hostId = socket.id;
   }
-  roomsMeta.get(roomId).viewers += 1;
 
   console.log(
-    `[+] Пользователь ${socket.id} подключился в комнату "${roomId}" ` +
-    `(всего зрителей в комнате: ${roomsMeta.get(roomId).viewers})`
+    `[+] ${socket.id} подключился в "${roomId}" ` +
+    `(зрителей: ${room.viewers}, хост: ${room.hostId === socket.id ? 'ДА' : room.hostId})`
   );
 
-  // ── Приветствие нового участника: отдаём ему всё состояние ──
-  // Сервер не хранит состояние плеера (оно живёт у "хоста").
-  // Вместо этого при подключении нового зрителя мы просим
-  // остальных участников комнаты прислать актуальное состояние:
-  // 1) Новичку — ждать событие ROOM_STATE от любого участника.
-  // 2) Существующим участникам — команду REQUEST_STATE.
-  //
-  // Такой подход позволяет синхронизировать опоздавшего зрителя
-  // без хранения состояния на сервере (проще и надёжнее).
+  // ── Приветствие + полное состояние комнаты ─────────────────
   socket.emit('hello', {
     roomId,
     socketId: socket.id,
+    isHost,
     message: 'Подключено к комнате синхронизации'
   });
 
-  // Отдаём новичку последние сообщения чата
-  sendChatHistory(socket, roomId);
+  // Отдаём новичку полное состояние (как в Rave)
+  socket.emit('ROOM_STATE', getRoomState(room));
 
-  // Просим остальных участников комнаты прислать текущее состояние
-  socket.to(roomId).emit('request_state', { from: socket.id });
+  // Отдаём историю чата
+  if (room.messages.length > 0) {
+    socket.emit('CHAT_HISTORY', { messages: room.messages.slice(-50) });
+  }
+
+  // Сообщаем остальным, что новый участник зашёл
+  socket.to(roomId).emit('USER_JOINED', {
+    id: socket.id,
+    isHost,
+    viewers: room.viewers,
+  });
 
   // ── Обработка ивентов синхронизации ────────────────────────
-  // Каждое действие перенаправляется ВСЕМ участникам комнаты,
-  // кроме отправителя (socket.broadcast). Это и есть защита
-  // от петли событий на уровне сервера: команда не возвращается
-  // обратно тому, кто её инициировал.
+  // Только хост может управлять видео (как в Rave)
 
   socket.on('PLAY', (data) => {
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
+
     const payload = normalizePayload(data);
-    console.log(`▶  PLAY   | ${socket.id} | room=${roomId}`, payload);
-    socket.to(roomId).emit('PLAY', payload);
+    const pos = typeof payload.time === 'number' ? payload.time : getCurrentPosition(room);
+
+    room.isPlaying = true;
+    room.position = pos;
+    room.startedAt = Date.now();
+
+    console.log(`▶  PLAY   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
+    socket.to(roomId).emit('PLAY', {
+      ...payload,
+      time: pos,
+      serverTime: Date.now(),
+    });
   });
 
   socket.on('PAUSE', (data) => {
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
+
     const payload = normalizePayload(data);
-    console.log(`⏸  PAUSE  | ${socket.id} | room=${roomId}`, payload);
-    socket.to(roomId).emit('PAUSE', payload);
+    const pos = getCurrentPosition(room);
+
+    room.isPlaying = false;
+    room.position = pos;
+    room.startedAt = 0;
+
+    console.log(`⏸  PAUSE  | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
+    socket.to(roomId).emit('PAUSE', {
+      ...payload,
+      time: pos,
+      serverTime: Date.now(),
+    });
   });
 
   socket.on('SEEK', (data) => {
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
+
     const payload = normalizePayload(data);
-    console.log(`⏩ SEEK   | ${socket.id} | room=${roomId}`, payload);
-    socket.to(roomId).emit('SEEK', payload);
+    const pos = typeof payload.time === 'number' ? payload.time : 0;
+
+    room.position = pos;
+    if (room.isPlaying) {
+      room.startedAt = Date.now();
+    }
+
+    console.log(`⏩ SEEK   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
+    socket.to(roomId).emit('SEEK', {
+      ...payload,
+      time: pos,
+      serverTime: Date.now(),
+    });
   });
 
   socket.on('CHANGE_MEDIA', (data) => {
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может менять видео' });
+      return;
+    }
+
     const payload = normalizePayload(data);
-    console.log(`🎬 MEDIA  | ${socket.id} | room=${roomId}`, payload);
-    socket.to(roomId).emit('CHANGE_MEDIA', payload);
+    const url = String(payload.url || '').slice(0, 2000);
+    const type = String(payload.mediaType || '').slice(0, 32);
+
+    if (!url) return;
+
+    room.currentUrl = url;
+    room.currentType = type;
+    room.isPlaying = true;
+    room.position = 0;
+    room.startedAt = Date.now();
+
+    console.log(`🎬 MEDIA  | ${socket.id} | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
+    socket.to(roomId).emit('CHANGE_MEDIA', {
+      ...payload,
+      url,
+      mediaType: type,
+      time: 0,
+      serverTime: Date.now(),
+    });
   });
 
-  // ── Чат: пересылаем сообщение всем, кроме отправителя ──────
+  // ── Очередь видео ──────────────────────────────────────────
+  socket.on('ADD_TO_QUEUE', (data) => {
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может добавлять в очередь' });
+      return;
+    }
+
+    const url = String(data?.url || '').slice(0, 2000);
+    const type = String(data?.mediaType || '').slice(0, 32);
+    if (!url) return;
+
+    room.queue.push({ url, type });
+    console.log(`➕ QUEUE  | ${socket.id} | room=${roomId} | добавлено: ${url.slice(0, 50)}`);
+
+    io.to(roomId).emit('QUEUE_UPDATED', { queue: room.queue });
+  });
+
+  socket.on('REMOVE_FROM_QUEUE', (data) => {
+    if (socket.id !== room.hostId) return;
+
+    const index = Number(data?.index);
+    if (Number.isInteger(index) && index >= 0 && index < room.queue.length) {
+      room.queue.splice(index, 1);
+      io.to(roomId).emit('QUEUE_UPDATED', { queue: room.queue });
+    }
+  });
+
+  socket.on('NEXT_IN_QUEUE', () => {
+    if (socket.id !== room.hostId) return;
+
+    const next = room.queue.shift();
+    if (!next) return;
+
+    room.currentUrl = next.url;
+    room.currentType = next.type;
+    room.isPlaying = true;
+    room.position = 0;
+    room.startedAt = Date.now();
+
+    console.log(`⏭ NEXT   | ${socket.id} | room=${roomId} | ${next.url.slice(0, 50)}`);
+
+    io.to(roomId).emit('CHANGE_MEDIA', {
+      url: next.url,
+      mediaType: next.type,
+      time: 0,
+      serverTime: Date.now(),
+    });
+    io.to(roomId).emit('QUEUE_UPDATED', { queue: room.queue });
+  });
+
+  // ── Чат ─────────────────────────────────────────────────────
   socket.on('CHAT', (data) => {
     const payload = normalizeChat(data, socket.id);
     if (!payload) return;
 
-    // Сохраняем последние 50 сообщений для новых участников
-    const meta = roomsMeta.get(roomId);
-    if (meta) {
-      if (!meta.messages) meta.messages = [];
-      meta.messages.push(payload);
-      if (meta.messages.length > 50) meta.messages.shift();
-    }
+    room.messages.push(payload);
+    if (room.messages.length > 50) room.messages.shift();
 
     console.log(`💬 CHAT   | ${socket.id} | room=${roomId}`, payload.text);
     socket.to(roomId).emit('CHAT', payload);
   });
 
-  // Обычный "ping/status" — например, кто сейчас в комнате
+  // ── Пиры ────────────────────────────────────────────────────
   socket.on('GET_PEERS', () => {
     const peers = [...io.sockets.adapter.rooms.get(roomId) || []]
       .filter((id) => id !== socket.id);
-    socket.emit('PEERS', { peers, count: peers.length });
+    socket.emit('PEERS', { peers, count: peers.length, hostId: room.hostId });
   });
 
-  // ── Отключение ─────────────────────────────────────────────
+  // ── Отключение ──────────────────────────────────────────────
   socket.on('disconnect', (reason) => {
-    const meta = roomsMeta.get(roomId);
-    if (meta) {
-      meta.viewers = Math.max(0, meta.viewers - 1);
-    }
+    room.viewers = Math.max(0, room.viewers - 1);
+
     console.log(
-      `[-] Пользователь ${socket.id} отключился из комнаты "${roomId}" ` +
-      `(причина: ${reason}; зрителей в комнате: ${meta ? meta.viewers : 0})`
+      `[-] ${socket.id} отключился из "${roomId}" ` +
+      `(причина: ${reason}; зрителей: ${room.viewers})`
     );
-    // Сообщаем остальным, что участник вышел
-    socket.to(roomId).emit('USER_LEFT', { id: socket.id });
+
+    socket.to(roomId).emit('USER_LEFT', { id: socket.id, viewers: room.viewers });
+
+    // Если хост ушёл — передаём роль следующему участнику
+    if (room.hostId === socket.id) {
+      const remaining = [...io.sockets.adapter.rooms.get(roomId) || []];
+      if (remaining.length > 0) {
+        room.hostId = remaining[0];
+        console.log(`👑 Новый хост комнаты "${roomId}": ${room.hostId}`);
+        io.to(roomId).emit('HOST_CHANGED', { hostId: room.hostId });
+      } else {
+        room.hostId = null;
+        // Комната пуста — сбрасываем состояние
+        room.currentUrl = '';
+        room.currentType = null;
+        room.isPlaying = false;
+        room.position = 0;
+        room.startedAt = 0;
+        room.queue = [];
+      }
+    }
   });
 
   socket.on('error', (err) => {
@@ -191,34 +354,20 @@ io.on('connection', (socket) => {
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
 // ─────────────────────────────────────────────────────────────
 
-/**
- * Нормализует payload события: гарантирует наличие time (мс) и
- * защищает от мусорных/бинарных данных от клиента.
- */
 function normalizePayload(data) {
   if (!data || typeof data !== 'object') return { time: Date.now() };
   return {
     ...data,
-    // Всегда перезаписываем время получения на сервере, чтобы
-    // все команды имели согласованную метку и у клиентов был
-    // единый ориентир для порога рассинхрона.
     time: Date.now(),
   };
 }
 
-/**
- * Очищает room_id: только буквы, цифры, дефис и подчёркивание,
- * максимум 64 символа. Всё остальное отбрасывается.
- */
 function sanitizeRoom(room) {
   if (typeof room !== 'string') return null;
   const cleaned = room.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
   return cleaned || null;
 }
 
-/**
- * Нормализует сообщение чата: защищает от мусора и бинарных данных.
- */
 function normalizeChat(data, socketId) {
   if (!data || typeof data !== 'object') return null;
   const text = String(data.text || '').trim().slice(0, 500);
@@ -231,16 +380,6 @@ function normalizeChat(data, socketId) {
     socketId,
     time: Date.now(),
   };
-}
-
-/**
- * Отдаёт новому участнику последние сообщения чата комнаты.
- */
-function sendChatHistory(socket, roomId) {
-  const meta = roomsMeta.get(roomId);
-  if (meta && Array.isArray(meta.messages) && meta.messages.length > 0) {
-    socket.emit('CHAT_HISTORY', { messages: meta.messages.slice(-50) });
-  }
 }
 
 // ─────────────────────────────────────────────────────────────

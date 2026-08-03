@@ -592,6 +592,58 @@ input {
   text-overflow: ellipsis;
 }
 
+.queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.queue-empty {
+  font-size: 12px;
+  color: var(--tg-hint);
+  text-align: center;
+  padding: 8px;
+  opacity: 0.7;
+}
+
+.queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+}
+
+.queue-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.queue-name {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.queue-remove {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  color: var(--tg-hint);
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .drawer-peers {
   display: flex;
   flex-direction: column;
