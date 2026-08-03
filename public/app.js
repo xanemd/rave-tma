@@ -1766,9 +1766,15 @@ function bindUI() {
    18.5. АНИМИРОВАННЫЕ СЕРДЕЧКИ В ЧАТЕ
    ═══════════════════════════════════════════════════════════ */
 
+let heartsEnabled = true;
+
 function createHeart() {
   const container = document.querySelector('.hearts-bg');
   if (!container) return;
+
+  // Проверяем, включены ли сердечки
+  const toggle = document.getElementById('heartsToggle');
+  if (toggle && !toggle.checked) return;
 
   // Случайный пропуск: создаем сердечки только в 40% случаев
   if (Math.random() > 0.4) return;
