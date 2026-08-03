@@ -475,6 +475,8 @@ function loadYouTubeVideo(videoId, autoplay = true) {
       },
     });
   } else {
+    // Плеер уже создан — скрываем загрузку сразу
+    hideLoading();
     state.ytPlayer.loadVideoById(videoId, 0, autoplay ? 'large' : 'default');
   }
 }
