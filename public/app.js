@@ -1770,26 +1770,33 @@ function createHeart() {
   const container = document.querySelector('.hearts-bg');
   if (!container) return;
 
-  // Случайный пропуск: создаем сердечко только в 30% случаев
-  if (Math.random() > 0.3) return;
+  // Случайный пропуск: создаем сердечки только в 80% случаев
+  if (Math.random() > 0.8) return;
 
-  const heart = document.createElement('div');
-  heart.classList.add('heart-particle');
-  
-  const hearts = ['💖', '💕', '💗', '❤️', '🌸'];
-  heart.innerText = hearts[Math.floor(Math.random() * hearts.length)];
-  
-  heart.style.left = Math.random() * 90 + 5 + '%';
-  heart.style.animationDuration = (Math.random() * 3 + 6) + 's'; // медленный подъем (6-9 сек)
-  heart.style.fontSize = (Math.random() * 8 + 12) + 'px';
+  // Создаем 2-4 сердечка за раз
+  const count = Math.floor(Math.random() * 3) + 2; // 2, 3 или 4
 
-  container.appendChild(heart);
+  for (let i = 0; i < count; i++) {
+    setTimeout(() => {
+      const heart = document.createElement('div');
+      heart.classList.add('heart-particle');
+      
+      const hearts = ['💖', '💕', '💗', '❤️', '🌸'];
+      heart.innerText = hearts[Math.floor(Math.random() * hearts.length)];
+      
+      heart.style.left = Math.random() * 90 + 5 + '%';
+      heart.style.animationDuration = (Math.random() * 3 + 6) + 's'; // медленный подъем (6-9 сек)
+      heart.style.fontSize = (Math.random() * 8 + 12) + 'px';
 
-  setTimeout(() => { heart.remove(); }, 9000);
+      container.appendChild(heart);
+
+      setTimeout(() => { heart.remove(); }, 9000);
+    }, i * 200); // небольшой интервал между появлением (200мс)
+  }
 }
 
-// Запускаем проверку раз в 3 секунды
-setInterval(createHeart, 3000);
+// Запускаем проверку раз в 2 секунды (чаще, так как теперь несколько сердечек)
+setInterval(createHeart, 2000);
 
 /* ═══════════════════════════════════════════════════════════
    19. ИНИЦИАЛИЗАЦИЯ
