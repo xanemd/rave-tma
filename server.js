@@ -108,6 +108,9 @@ io.on('connection', (socket) => {
     message: 'Подключено к комнате синхронизации'
   });
 
+  // Отдаём новичку последние сообщения чата
+  sendChatHistory(socket, roomId);
+
   // Просим остальных участников комнаты прислать текущее состояние
   socket.to(roomId).emit('request_state', { from: socket.id });
 
@@ -139,6 +142,23 @@ io.on('connection', (socket) => {
     const payload = normalizePayload(data);
     console.log(`🎬 MEDIA  | ${socket.id} | room=${roomId}`, payload);
     socket.to(roomId).emit('CHANGE_MEDIA', payload);
+  });
+
+  // ── Чат: пересылаем сообщение всем, кроме отправителя ──────
+  socket.on('CHAT', (data) => {
+    const payload = normalizeChat(data, socket.id);
+    if (!payload) return;
+
+    // Сохраняем последние 50 сообщений для новых участников
+    const meta = roomsMeta.get(roomId);
+    if (meta) {
+      if (!meta.messages) meta.messages = [];
+      meta.messages.push(payload);
+      if (meta.messages.length > 50) meta.messages.shift();
+    }
+
+    console.log(`💬 CHAT   | ${socket.id} | room=${roomId}`, payload.text);
+    socket.to(roomId).emit('CHAT', payload);
   });
 
   // Обычный "ping/status" — например, кто сейчас в комнате
@@ -194,6 +214,33 @@ function sanitizeRoom(room) {
   if (typeof room !== 'string') return null;
   const cleaned = room.replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 64);
   return cleaned || null;
+}
+
+/**
+ * Нормализует сообщение чата: защищает от мусора и бинарных данных.
+ */
+function normalizeChat(data, socketId) {
+  if (!data || typeof data !== 'object') return null;
+  const text = String(data.text || '').trim().slice(0, 500);
+  if (!text) return null;
+
+  return {
+    id: `${socketId}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+    text,
+    sender: String(data.sender || 'Гость').slice(0, 64),
+    socketId,
+    time: Date.now(),
+  };
+}
+
+/**
+ * Отдаёт новому участнику последние сообщения чата комнаты.
+ */
+function sendChatHistory(socket, roomId) {
+  const meta = roomsMeta.get(roomId);
+  if (meta && Array.isArray(meta.messages) && meta.messages.length > 0) {
+    socket.emit('CHAT_HISTORY', { messages: meta.messages.slice(-50) });
+  }
 }
 
 // ─────────────────────────────────────────────────────────────

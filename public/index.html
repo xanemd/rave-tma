@@ -44,109 +44,162 @@
       </div>
     </div>
 
-    <!-- Поле ввода URL + кнопка запуска -->
-    <div class="url-row">
-      <input
-        type="text"
-        id="urlInput"
-        class="url-input"
-        placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8, VK Video…"
-        autocomplete="off"
-        autocapitalize="none"
-        spellcheck="false"
-        enterkeyhint="go"
-      >
-      <button class="btn btn-primary" id="loadBtn" type="button">▶ Включить</button>
-    </div>
-
-    <!-- Быстрые пресеты источников -->
-    <div class="preset-row" id="presetRow">
-      <button class="preset-btn" data-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" type="button">
-        🎬 YouTube
+    <!-- Компактная строка: кнопка «Сменить видео» + пригласить -->
+    <div class="header-actions">
+      <button class="btn btn-primary btn-sm" id="changeMediaBtn" type="button">
+        🎬 Сменить видео
       </button>
-      <button class="preset-btn" data-url="https://vkvideo.ru/video-225853289_456239017" type="button">
-        🎥 VK Video
+      <button class="btn btn-ghost btn-sm" id="inviteBtnHeader" type="button">
+        🔗 Пригласить
       </button>
-      <button class="preset-btn" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" type="button">
-        📡 MP4 / HLS
+      <button class="btn btn-ghost btn-sm" id="peersBtnHeader" type="button">
+        👥 <span id="peersCountHeader">0</span>
       </button>
     </div>
   </header>
 
   <!-- ════════════════════════════════════════════════════════
-       ЦЕНТРАЛЬНАЯ ОБЛАСТЬ — ПЛЕЕР
+       ОСНОВНАЯ ОБЛАСТЬ: ПЛЕЕР СВЕРХУ + ЧАТ СНИЗУ
        ════════════════════════════════════════════════════════ -->
-  <main class="player-area" id="playerArea">
+  <main class="app-main">
 
-    <!-- Заглушка «ничего не выбрано» -->
-    <div class="player-placeholder" id="placeholder">
-      <div class="placeholder-icon">🎥</div>
-      <div class="placeholder-title">Начнём смотреть вместе?</div>
-      <div class="placeholder-sub">
-        Вставьте ссылку на видео выше или выберите быстрый источник.<br>
-        Всё, что вы запускаете, синхронно увидит ваш собеседник.
+    <!-- ── ПЛЕЕР ─────────────────────────────────────────── -->
+    <section class="player-section" id="playerSection">
+
+      <!-- Заглушка «ничего не выбрано» -->
+      <div class="player-placeholder" id="placeholder">
+        <div class="placeholder-icon">🎥</div>
+        <div class="placeholder-title">Начнём смотреть вместе?</div>
+        <div class="placeholder-sub">
+          Нажмите «Сменить видео» и вставьте ссылку.<br>
+          Всё, что вы запускаете, синхронно увидит ваш собеседник.
+        </div>
       </div>
-    </div>
 
-    <!-- Контейнер под YouTube (создаётся API динамически) -->
-    <div id="ytPlayerHost" class="player-shell hidden"></div>
+      <!-- Контейнер под YouTube (создаётся API динамически) -->
+      <div id="ytPlayerHost" class="player-shell hidden"></div>
 
-    <!-- Контейнер под HTML5 video / HLS -->
-    <div id="videoHost" class="player-shell hidden">
-      <video
-        id="nativeVideo"
-        class="native-video"
-        controls
-        playsinline
-        preload="auto"
-      ></video>
-    </div>
+      <!-- Контейнер под HTML5 video / HLS -->
+      <div id="videoHost" class="player-shell hidden">
+        <video
+          id="nativeVideo"
+          class="native-video"
+          controls
+          playsinline
+          preload="auto"
+        ></video>
+      </div>
 
-    <!-- Контейнер под произвольный iframe (VK Video, vk.com, etc.) -->
-    <div id="iframeHost" class="player-shell hidden">
-      <iframe
-        id="embedFrame"
-        class="embed-frame"
-        src="about:blank"
-        frameborder="0"
-        allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
-        allowfullscreen
-      ></iframe>
-    </div>
+      <!-- Контейнер под произвольный iframe (VK Video, vk.com, etc.) -->
+      <div id="iframeHost" class="player-shell hidden">
+        <iframe
+          id="embedFrame"
+          class="embed-frame"
+          src="about:blank"
+          frameborder="0"
+          allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+          allowfullscreen
+        ></iframe>
+      </div>
 
-    <!-- Индикатор загрузки (вместо чёрного экрана) -->
-    <div class="loading-overlay hidden" id="loadingOverlay">
-      <div class="spinner"></div>
-      <div class="loading-text" id="loadingText">Загрузка видео…</div>
-    </div>
+      <!-- Текущий статус видео -->
+      <div class="now-playing" id="nowPlaying">
+        <span class="now-playing-label">Сейчас играет:</span>
+        <span class="now-playing-title" id="nowPlayingTitle">—</span>
+      </div>
+
+    </section>
+
+    <!-- ── ЧАТ ────────────────────────────────────────────── -->
+    <section class="chat-section" id="chatSection">
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-empty" id="chatEmpty">
+          <span>💬</span>
+          <p>Напишите что-нибудь собеседнику</p>
+        </div>
+      </div>
+
+      <div class="chat-input-row">
+        <input
+          type="text"
+          id="chatInput"
+          class="chat-input"
+          placeholder="Сообщение…"
+          autocomplete="off"
+          maxlength="500"
+        >
+        <button class="btn btn-primary btn-sm" id="chatSendBtn" type="button">➤</button>
+      </div>
+    </section>
 
   </main>
 
   <!-- ════════════════════════════════════════════════════════
-       НИЖНЯЯ ПАНЕЛЬ — СТАТУС / ПИТЕРЫ / УПРАВЛЕНИЕ
+       БОКОВАЯ ПАНЕЛЬ «СМЕНИТЬ ВИДЕО»
        ════════════════════════════════════════════════════════ -->
-  <footer class="app-footer" id="appFooter">
-    <div class="footer-status" id="footerStatus">
-      <span class="status-label" id="statusLabel">Ожидание видео…</span>
+  <aside class="media-drawer" id="mediaDrawer" aria-hidden="true">
+    <div class="drawer-header">
+      <span class="drawer-title">🎬 Сменить видео</span>
+      <button class="drawer-close" id="drawerCloseBtn" type="button">✕</button>
     </div>
 
-    <div class="footer-controls">
-      <!-- Кнопка «Пригласить друга» — копирует ссылку на комнату -->
-      <button class="footer-btn" id="inviteBtn" type="button">
-        🔗 Пригласить
-      </button>
+    <div class="drawer-body">
+      <!-- Поле ввода URL -->
+      <div class="url-row">
+        <input
+          type="text"
+          id="urlInput"
+          class="url-input"
+          placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8, VK Video…"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+          enterkeyhint="go"
+        >
+        <button class="btn btn-primary" id="loadBtn" type="button">▶</button>
+      </div>
 
-      <!-- Кнопка «Кто в комнате» -->
-      <button class="footer-btn" id="peersBtn" type="button">
-        👥 Пиры
-      </button>
+      <!-- Быстрые пресеты источников -->
+      <div class="preset-row" id="presetRow">
+        <button class="preset-btn" data-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" type="button">
+          🎬 YouTube
+        </button>
+        <button class="preset-btn" data-url="https://vkvideo.ru/video-225853289_456239017" type="button">
+          🎥 VK Video
+        </button>
+        <button class="preset-btn" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" type="button">
+          📡 MP4 / HLS
+        </button>
+      </div>
 
-      <!-- Кнопка сброса (перезапустить плеер) -->
-      <button class="footer-btn" id="resetBtn" type="button">
-        ↺ Сброс
-      </button>
+      <!-- Недавние / пресет-плейлист -->
+      <div class="drawer-divider">Быстрый выбор</div>
+      <div class="quick-list" id="quickList">
+        <button class="quick-item" data-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" type="button">
+          <span class="quick-icon">🎬</span>
+          <span class="quick-name">Rick Astley — Never Gonna...</span>
+        </button>
+        <button class="quick-item" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" type="button">
+          <span class="quick-icon">📡</span>
+          <span class="quick-name">Тестовый HLS-поток (Big Buck Bunny)</span>
+        </button>
+      </div>
+
+      <div class="drawer-divider">Сейчас в комнате</div>
+      <div class="drawer-peers" id="drawerPeers">
+        <div class="drawer-peer">🎬 Вы</div>
+      </div>
     </div>
-  </footer>
+  </aside>
+
+  <!-- Оверлей для закрытия панели -->
+  <div class="drawer-overlay hidden" id="drawerOverlay"></div>
+
+  <!-- Индикатор загрузки (вместо чёрного экрана) -->
+  <div class="loading-overlay hidden" id="loadingOverlay">
+    <div class="spinner"></div>
+    <div class="loading-text" id="loadingText">Загрузка видео…</div>
+  </div>
 
   <!-- Скрипт приложения -->
   <script src="app.js"></script>

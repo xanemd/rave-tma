@@ -1,11 +1,9 @@
 /* ═══════════════════════════════════════════════════════════
-   RAVE TMA — тёмная тема в стиле Telegram
-   Используем CSS-переменные Telegram WebApp SDK
+   RAVE TMA — интерфейс в стиле Rave
+   Плеер сверху + чат снизу + боковая панель смены видео
    ═══════════════════════════════════════════════════════════ */
 
 :root {
-  /* Telegram-переменные (подставляются SDK автоматически).
-     У каждого значения есть фолбэк для запуска вне Telegram. */
   --tg-bg: var(--tg-theme-bg-color, #17212b);
   --tg-secondary: var(--tg-theme-secondary-bg-color, #232e3c);
   --tg-text: var(--tg-theme-text-color, #f5f5f5);
@@ -15,23 +13,19 @@
   --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
   --tg-destructive: var(--tg-theme-destructive-text-color, #e53935);
 
-  /* Собственные переменные */
   --radius: 12px;
   --radius-sm: 8px;
-  --header-bg: rgba(23, 33, 43, 0.95);
-  --footer-bg: rgba(23, 33, 43, 0.95);
+  --header-bg: rgba(23, 33, 43, 0.97);
   --border: rgba(255, 255, 255, 0.08);
+  --border-strong: rgba(255, 255, 255, 0.16);
   --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 
-  /* Telegram использует свой шрифт; фолбэки — системные с засечками,
-     чтобы максимально соответствовать нативному виду */
   --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
           "Helvetica Neue", Arial, sans-serif;
 }
 
-/* ── Сброс ─────────────────────────────────────────────────── */
 * {
   margin: 0;
   padding: 0;
@@ -95,10 +89,10 @@ input {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
-  padding: calc(10px + var(--safe-top)) 12px 12px 12px;
+  padding: calc(8px + var(--safe-top)) 12px 8px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   z-index: 10;
 }
 
@@ -117,20 +111,20 @@ input {
 }
 
 .logo-icon {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   background: var(--tg-button);
   color: var(--tg-button-text);
   border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 12px;
   flex-shrink: 0;
 }
 
 .logo-text {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 700;
   letter-spacing: 0.3px;
   white-space: nowrap;
@@ -147,71 +141,42 @@ input {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 140px;
+  max-width: 120px;
 }
 
-/* ── Статус подключения ───────────────────────────────────── */
 .conn-status {
   display: flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--tg-hint);
   flex-shrink: 0;
 }
 
 .conn-dot {
-  width: 8px;
-  height: 8px;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   background: var(--tg-hint);
   transition: background 0.3s;
 }
 
-.conn-status.connected .conn-dot {
-  background: #4caf50;
-}
-.conn-status.disconnected .conn-dot {
-  background: var(--tg-destructive);
-}
-.conn-status.connected {
-  color: #8bc34a;
-}
-.conn-status.disconnected {
-  color: var(--tg-destructive);
-}
+.conn-status.connected .conn-dot { background: #4caf50; }
+.conn-status.disconnected .conn-dot { background: var(--tg-destructive); }
+.conn-status.connected { color: #8bc34a; }
+.conn-status.disconnected { color: var(--tg-destructive); }
 
-/* ── Поле URL + кнопка ────────────────────────────────────── */
-.url-row {
+.header-actions {
   display: flex;
-  gap: 8px;
-}
-
-.url-input {
-  flex: 1;
-  min-width: 0;
-  background: var(--tg-secondary);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 10px 12px;
-  font-size: 14px;
-  color: var(--tg-text);
-  transition: border-color 0.2s;
-}
-
-.url-input::placeholder {
-  color: var(--tg-hint);
-}
-
-.url-input:focus {
-  border-color: var(--tg-button);
+  gap: 6px;
+  align-items: center;
 }
 
 .btn {
   border-radius: var(--radius-sm);
   font-weight: 600;
-  font-size: 14px;
-  padding: 10px 16px;
+  font-size: 13px;
+  padding: 8px 14px;
   white-space: nowrap;
   transition: opacity 0.2s, transform 0.1s;
 }
@@ -221,65 +186,78 @@ input {
   transform: scale(0.97);
 }
 
+.btn-sm {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+
 .btn-primary {
   background: var(--tg-button);
   color: var(--tg-button-text);
 }
 
-/* ── Быстрые пресеты ──────────────────────────────────────── */
-.preset-row {
-  display: flex;
-  gap: 8px;
-  overflow-x: auto;
-  padding-bottom: 2px;
-  scrollbar-width: none;
-}
-
-.preset-row::-webkit-scrollbar {
-  display: none;
-}
-
-.preset-btn {
-  flex-shrink: 0;
+.btn-ghost {
   background: var(--tg-secondary);
   border: 1px solid var(--border);
   color: var(--tg-text);
-  font-size: 13px;
-  font-weight: 500;
-  padding: 7px 14px;
-  border-radius: 999px;
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.preset-btn:active {
-  background: var(--tg-button);
-  color: var(--tg-button-text);
-  border-color: var(--tg-button);
 }
 
 /* ═══════════════════════════════════════════════════════════
-   ЦЕНТРАЛЬНАЯ ОБЛАСТЬ — ПЛЕЕР
+   ОСНОВНАЯ ОБЛАСТЬ: ПЛЕЕР + ЧАТ
    ═══════════════════════════════════════════════════════════ */
-.player-area {
+.app-main {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+}
+
+/* ── Плеер (верх) ─────────────────────────────────────────── */
+.player-section {
+  flex-shrink: 0;
+  background: #000;
+  position: relative;
+  display: flex;
   align-items: center;
   justify-content: center;
-  padding: 8px;
-  position: relative;
+  /* Плеер занимает ~48% высоты, как в Rave */
+  height: 48vh;
+  min-height: 200px;
+  max-height: 50vh;
   overflow: hidden;
+}
+
+.player-placeholder {
+  text-align: center;
+  padding: 24px;
+  max-width: 420px;
+  color: var(--tg-text);
+}
+
+.placeholder-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.7;
+}
+
+.placeholder-title {
+  font-size: 18px;
+  font-weight: 700;
+  margin-bottom: 8px;
+}
+
+.placeholder-sub {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--tg-hint);
 }
 
 .player-shell {
   width: 100%;
-  max-width: 960px;
-  aspect-ratio: 16 / 9;
+  height: 100%;
   background: #000;
-  border-radius: var(--radius);
-  overflow: hidden;
-  box-shadow: var(--shadow);
   position: relative;
 }
 
@@ -297,7 +275,333 @@ input {
   background: #000;
 }
 
-/* ── Индикатор загрузки (вместо чёрного экрана) ───────────── */
+.now-playing {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 4px 10px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  font-size: 11px;
+  color: var(--tg-hint);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  pointer-events: none;
+  z-index: 5;
+}
+
+.now-playing-title {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--tg-text);
+  opacity: 0.9;
+}
+
+/* ── Чат (низ) ────────────────────────────────────────────── */
+.chat-section {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--border);
+  background: var(--tg-bg);
+}
+
+.chat-messages {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.chat-empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--tg-hint);
+  font-size: 13px;
+  text-align: center;
+  opacity: 0.6;
+}
+
+.chat-empty span {
+  font-size: 32px;
+}
+
+.msg {
+  max-width: 80%;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 13px;
+  line-height: 1.4;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.msg.mine {
+  align-self: flex-end;
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  border-bottom-right-radius: 4px;
+}
+
+.msg.theirs {
+  align-self: flex-start;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  border-bottom-left-radius: 4px;
+}
+
+.msg-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  opacity: 0.7;
+  margin-bottom: 3px;
+}
+
+.msg.mine .msg-meta {
+  justify-content: flex-end;
+}
+
+.msg-sender {
+  font-weight: 600;
+}
+
+.msg-time {
+  opacity: 0.7;
+}
+
+.chat-input-row {
+  flex-shrink: 0;
+  display: flex;
+  gap: 6px;
+  padding: 6px 8px calc(6px + var(--safe-bottom)) 8px;
+  border-top: 1px solid var(--border);
+  background: var(--tg-secondary);
+}
+
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--tg-text);
+}
+
+.chat-input:focus {
+  border-color: var(--tg-button);
+}
+
+#chatSendBtn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   БОКОВАЯ ПАНЕЛЬ «СМЕНИТЬ ВИДЕО»
+   ═══════════════════════════════════════════════════════════ */
+.media-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: min(320px, 85vw);
+  background: var(--tg-secondary);
+  border-left: 1px solid var(--border);
+  z-index: 300;
+  transform: translateX(100%);
+  transition: transform 0.3s ease;
+  display: flex;
+  flex-direction: column;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+.media-drawer.open {
+  transform: translateX(0);
+}
+
+.drawer-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(12px + var(--safe-top)) 12px 12px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer-title {
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.drawer-close {
+  font-size: 16px;
+  color: var(--tg-hint);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+}
+
+.drawer-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 12px calc(12px + var(--safe-bottom)) 12px;
+}
+
+.url-row {
+  display: flex;
+  gap: 6px;
+}
+
+.url-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--tg-text);
+  transition: border-color 0.2s;
+}
+
+.url-input::placeholder {
+  color: var(--tg-hint);
+}
+
+.url-input:focus {
+  border-color: var(--tg-button);
+}
+
+.preset-row {
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 12px 0 4px;
+  scrollbar-width: none;
+}
+
+.preset-row::-webkit-scrollbar {
+  display: none;
+}
+
+.preset-btn {
+  flex-shrink: 0;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+  color: var(--tg-text);
+  font-size: 12px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 999px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.preset-btn:active {
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  border-color: var(--tg-button);
+}
+
+.drawer-divider {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--tg-hint);
+  margin: 16px 0 8px;
+}
+
+.quick-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quick-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  text-align: left;
+  color: var(--tg-text);
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.quick-item:active {
+  background: var(--tg-button);
+  border-color: var(--tg-button);
+  color: var(--tg-button-text);
+}
+
+.quick-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.quick-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drawer-peers {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.drawer-peer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--tg-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+/* Оверлей */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 299;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ИНДИКАТОР ЗАГРУЗКИ
+   ═══════════════════════════════════════════════════════════ */
 .loading-overlay {
   position: fixed;
   inset: 0;
@@ -315,8 +619,8 @@ input {
 }
 
 .spinner {
-  width: 48px;
-  height: 48px;
+  width: 44px;
+  height: 44px;
   border: 4px solid rgba(255, 255, 255, 0.2);
   border-top-color: var(--tg-button, #5288c1);
   border-radius: 50%;
@@ -324,7 +628,7 @@ input {
 }
 
 .loading-text {
-  font-size: 14px;
+  font-size: 13px;
   color: var(--tg-text, #f5f5f5);
   font-weight: 500;
   text-align: center;
@@ -335,91 +639,13 @@ input {
   to { transform: rotate(360deg); }
 }
 
-/* ── Заглушка ─────────────────────────────────────────────── */
-.player-placeholder {
-  text-align: center;
-  padding: 24px;
-  max-width: 420px;
-}
-
-.placeholder-icon {
-  font-size: 64px;
-  margin-bottom: 16px;
-  opacity: 0.7;
-}
-
-.placeholder-title {
-  font-size: 20px;
-  font-weight: 700;
-  margin-bottom: 8px;
-  color: var(--tg-text);
-}
-
-.placeholder-sub {
-  font-size: 14px;
-  line-height: 1.5;
-  color: var(--tg-hint);
-}
-
 /* ═══════════════════════════════════════════════════════════
-   НИЖНЯЯ ПАНЕЛЬ
+   SNACKBAR
    ═══════════════════════════════════════════════════════════ */
-.app-footer {
-  flex-shrink: 0;
-  background: var(--footer-bg);
-  backdrop-filter: blur(10px);
-  -webkit-backdrop-filter: blur(10px);
-  border-top: 1px solid var(--border);
-  padding: 8px 12px calc(8px + var(--safe-bottom)) 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.footer-status {
-  text-align: center;
-}
-
-.status-label {
-  font-size: 12px;
-  color: var(--tg-hint);
-  display: inline-block;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.footer-controls {
-  display: flex;
-  gap: 8px;
-  justify-content: center;
-}
-
-.footer-btn {
-  flex: 1;
-  max-width: 160px;
-  background: var(--tg-secondary);
-  border: 1px solid var(--border);
-  color: var(--tg-text);
-  border-radius: var(--radius-sm);
-  padding: 10px 8px;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background 0.2s, transform 0.1s;
-}
-
-.footer-btn:active {
-  background: var(--tg-button);
-  color: var(--tg-button-text);
-  transform: scale(0.97);
-}
-
-/* ── Всплывающее уведомление (snackbar) ───────────────────── */
 .snackbar {
   position: fixed;
   left: 50%;
-  bottom: calc(90px + var(--safe-bottom));
+  bottom: calc(70px + var(--safe-bottom));
   transform: translateX(-50%) translateY(20px);
   background: var(--tg-secondary);
   border: 1px solid var(--border);
@@ -432,7 +658,7 @@ input {
   opacity: 0;
   pointer-events: none;
   transition: opacity 0.25s, transform 0.25s;
-  z-index: 100;
+  z-index: 400;
   max-width: 90vw;
   text-align: center;
 }
@@ -442,190 +668,24 @@ input {
   transform: translateX(-50%) translateY(0);
 }
 
-/* ── Модальное окно «Пиры» ────────────────────────────────── */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.6);
-  display: flex;
-  align-items: flex-end;
-  justify-content: center;
-  z-index: 200;
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 0.25s;
-}
-
-.modal-overlay.show {
-  opacity: 1;
-  pointer-events: auto;
-}
-
-.modal-sheet {
-  background: var(--tg-bg);
-  width: 100%;
-  max-width: 500px;
-  border-radius: 20px 20px 0 0;
-  padding: 20px 16px calc(20px + var(--safe-bottom)) 16px;
-  transform: translateY(100%);
-  transition: transform 0.25s;
-  border-top: 1px solid var(--border);
-}
-
-.modal-overlay.show .modal-sheet {
-  transform: translateY(0);
-}
-
-.modal-title {
-  font-size: 16px;
-  font-weight: 700;
-  text-align: center;
-  margin-bottom: 16px;
-}
-
-.peer-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--tg-secondary);
-  border-radius: var(--radius-sm);
-  margin-bottom: 8px;
-}
-
-.peer-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--tg-button);
-  color: var(--tg-button-text);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  font-weight: 700;
-  flex-shrink: 0;
-}
-
-.peer-name {
-  font-size: 13px;
-  font-weight: 500;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
-}
-
-.peer-id {
-  font-size: 11px;
-  color: var(--tg-hint);
-  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
-}
-
-.modal-close {
-  width: 100%;
-  background: var(--tg-secondary);
-  border: 1px solid var(--border);
-  color: var(--tg-text);
-  border-radius: var(--radius-sm);
-  padding: 12px;
-  font-size: 14px;
-  font-weight: 600;
-  margin-top: 8px;
-}
-
-/* ── Адаптивность: узкие мобильные экраны ─────────────────── */
+/* ═══════════════════════════════════════════════════════════
+   АДАПТИВНОСТЬ
+   ═══════════════════════════════════════════════════════════ */
 @media (max-width: 480px) {
-  .logo-text {
-    font-size: 15px;
-  }
-
-  .conn-status {
-    font-size: 10px;
-  }
-
-  .url-input {
-    font-size: 13px;
-    padding: 9px 10px;
-  }
-
-  .btn {
-    font-size: 13px;
-    padding: 9px 12px;
-  }
-
-  .preset-btn {
-    font-size: 12px;
-    padding: 6px 12px;
-  }
-
-  .player-area {
-    padding: 4px;
-  }
-
-  .player-shell {
-    border-radius: var(--radius-sm);
-  }
-
-  .footer-btn {
-    font-size: 12px;
-    padding: 9px 6px;
-  }
-
-  .placeholder-icon {
-    font-size: 48px;
-  }
-
-  .placeholder-title {
-    font-size: 17px;
-  }
-
-  .placeholder-sub {
-    font-size: 13px;
-  }
+  .logo-text { font-size: 14px; }
+  .conn-status { font-size: 10px; }
+  .btn-sm { font-size: 11px; padding: 5px 10px; }
+  .player-section { height: 42vh; min-height: 170px; }
 }
 
-/* ── Средние экраны / планшеты: плеер чуть компактнее ─────── */
-@media (max-width: 768px) {
-  .player-shell {
-    max-width: 100%;
-  }
-}
-
-/* ── Очень маленькие высоты (ландшафт смартфонов) ─────────── */
 @media (max-height: 560px) {
-  .logo-icon {
-    width: 24px;
-    height: 24px;
-    font-size: 11px;
+  .player-section {
+    height: 38vh;
+    min-height: 140px;
+    max-height: 200px;
   }
-
-  .logo-text {
-    font-size: 14px;
-  }
-
-  .app-header {
-    padding-top: calc(6px + var(--safe-top));
-    gap: 6px;
-  }
-
-  .url-input {
-    padding: 7px 10px;
-    font-size: 12px;
-  }
-
-  .btn {
-    padding: 7px 12px;
-    font-size: 12px;
-  }
-
-  .preset-btn {
-    padding: 4px 10px;
-    font-size: 11px;
-  }
-
-  .footer-btn {
-    padding: 6px 4px;
-    font-size: 11px;
-  }
+  .logo-icon { width: 22px; height: 22px; font-size: 10px; }
+  .logo-text { font-size: 13px; }
+  .app-header { padding-top: calc(4px + var(--safe-top)); gap: 4px; }
+  .btn-sm { font-size: 10px; padding: 4px 8px; }
 }

@@ -2,8 +2,12 @@
  * ─────────────────────────────────────────────────────────────
  *  RAVE TMA — клиентская логика
  *
- *  Всё синхронное поведение строится на следующих правилах:
+ *  Интерфейс в стиле Rave:
+ *  - Плеер сверху
+ *  - Чат снизу
+ *  - Боковая панель для смены видео
  *
+ *  Всё синхронное поведение строится на следующих правилах:
  *  1. Каждый клиент общается с сервером через Socket.io.
  *  2. События от ЛОКАЛЬНЫХ действий пользователя
  *     (play / pause / seek / смена видео) отправляются на сервер,
@@ -11,8 +15,6 @@
  *  3. События, пришедшие ОТ СЕРВЕРА (т.е. от другого участника),
  *     применяются к локальному плееру, НО НЕ отправляются обратно
  *     (защита от петли событий / Event Loop Fix).
- *     Дополнительно локальные события плеера (onplay, onpause,
- *     seeked) блокируются флагом applyingRemote.
  *  4. Порог рассинхрона для принудительного seek — 0.5 секунды.
  * ─────────────────────────────────────────────────────────────
  */
@@ -23,13 +25,13 @@
    0. КОНСТАНТЫ И СОСТОЯНИЕ
    ═══════════════════════════════════════════════════════════ */
 
-const SYNC_THRESHOLD_SECONDS = 0.5; // Порог рассинхрона
+const SYNC_THRESHOLD_SECONDS = 0.5;
 
 const SOURCE_TYPES = {
   YOUTUBE: 'youtube',
   HLS: 'hls',
-  NATIVE: 'native',       // .mp4 / .webm и др. прямые файлы
-  IFRAME: 'iframe',       // VK Video / любые embed-ссылки
+  NATIVE: 'native',
+  IFRAME: 'iframe',
   UNKNOWN: 'unknown'
 };
 
@@ -41,20 +43,19 @@ const state = {
   currentType: SOURCE_TYPES.UNKNOWN,
   currentUrl: '',
 
-  // YouTube IFrame API
   ytReady: false,
   ytPlayer: null,
   pendingYouTubeVideoId: null,
 
-  // Флаг: применяем ли мы команду от сервера (защита от петель)
   applyingRemote: false,
 
-  // Для «peers» модалки
   peers: [],
 
-  // Текущий пользователь (из Telegram initDataUnsafe)
-  userName: 'Guest',
+  userName: 'Гость',
   userId: null,
+
+  // Чат
+  messages: [],
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -64,31 +65,48 @@ const state = {
 const $ = (sel) => document.querySelector(sel);
 
 const els = {
-  urlInput: $('#urlInput'),
-  loadBtn: $('#loadBtn'),
-  presetRow: $('#presetRow'),
+  // Шапка
+  roomBadge: $('#roomBadge'),
   connStatus: $('#connStatus'),
   connText: $('#connText'),
-  statusLabel: $('#statusLabel'),
-  roomBadge: $('#roomBadge'),
 
+  // Кнопки шапки
+  changeMediaBtn: $('#changeMediaBtn'),
+  inviteBtn: $('#inviteBtnHeader'),
+  peersBtn: $('#peersBtnHeader'),
+  peersCount: $('#peersCountHeader'),
+
+  // Плеер
   placeholder: $('#placeholder'),
   ytHost: $('#ytPlayerHost'),
   videoHost: $('#videoHost'),
   nativeVideo: $('#nativeVideo'),
   iframeHost: $('#iframeHost'),
   embedFrame: $('#embedFrame'),
+  nowPlayingTitle: $('#nowPlayingTitle'),
 
+  // Чат
+  chatMessages: $('#chatMessages'),
+  chatEmpty: $('#chatEmpty'),
+  chatInput: $('#chatInput'),
+  chatSendBtn: $('#chatSendBtn'),
+
+  // Боковая панель
+  mediaDrawer: $('#mediaDrawer'),
+  drawerCloseBtn: $('#drawerCloseBtn'),
+  drawerOverlay: $('#drawerOverlay'),
+  drawerPeers: $('#drawerPeers'),
+  urlInput: $('#urlInput'),
+  loadBtn: $('#loadBtn'),
+  presetRow: $('#presetRow'),
+  quickList: $('#quickList'),
+
+  // Индикатор загрузки
   loadingOverlay: $('#loadingOverlay'),
   loadingText: $('#loadingText'),
-
-  inviteBtn: $('#inviteBtn'),
-  peersBtn: $('#peersBtn'),
-  resetBtn: $('#resetBtn'),
 };
 
 let snackbarEl = null;
-let modalOverlayEl = null;
 let snackbarTimer = null;
 
 /* ═══════════════════════════════════════════════════════════
@@ -98,38 +116,27 @@ let snackbarTimer = null;
 function initTelegram() {
   if (!window.Telegram || !window.Telegram.WebApp) {
     console.warn('Telegram WebApp SDK недоступен — работаем в обычном браузере.');
-    // Создаём комнату и для обычного браузера (без Telegram)
     if (!state.roomId) state.roomId = generateRoomId();
     return;
   }
 
   const tg = window.Telegram.WebApp;
-
-  // Раскрываем на весь экран сразу при запуске
   tg.expand();
   tg.ready();
 
-  // Применяем тему Telegram (фон, кнопка и т.д.) через CSS-переменные.
-  // SDK сам инжектит --tg-theme-* в :root, но мы дополнительно
-  // вызываем setHeaderColor / setBackgroundColor для красоты.
   try {
     tg.setHeaderColor(tg.themeParams.bg_color || '#17212b');
     tg.setBackgroundColor(tg.themeParams.bg_color || '#17212b');
-  } catch (e) {
-    /* не критично */
-  }
+  } catch (e) { /* не критично */ }
 
-  // Данные пользователя из initDataUnsafe
   const initData = tg.initDataUnsafe || {};
   const user = initData.user || {};
 
   if (user.first_name || user.username) {
-    state.userName = user.first_name || user.username || 'Guest';
+    state.userName = user.first_name || user.username || 'Гость';
     state.userId = user.id != null ? String(user.id) : null;
   }
 
-  // room_id из Telegram: ?startapp=room_abc или из query-параметра
-  // ВАЖНО: start_param приходит в initDataUnsafe.start_param
   let roomFromTelegram =
     initData.start_param ||
     new URLSearchParams(window.location.search).get('room') ||
@@ -138,9 +145,6 @@ function initTelegram() {
   if (roomFromTelegram && /^[a-zA-Z0-9_-]{1,64}$/.test(roomFromTelegram)) {
     state.roomId = roomFromTelegram;
   } else if (!state.roomId) {
-    // Нет комнаты — создаём новую уникальную.
-    // Каждый новый пользователь получает свою комнату, а ссылка
-    // ?room=... (кнопка «Пригласить») позволит другу попасть в неё.
     state.roomId = generateRoomId();
   }
 
@@ -149,9 +153,7 @@ function initTelegram() {
     user: state.userName,
   });
 
-  // Обработчик закрытия
   tg.onEvent('viewportChanged', () => {
-    // При изменении вьюпорта может потребоваться пересборка плеера
     if (state.ytPlayer && typeof state.ytPlayer.getIframe === 'function') {
       requestAnimationFrame(() => {
         try { state.ytPlayer.getIframe(); } catch (e) { /* ignore */ }
@@ -162,7 +164,6 @@ function initTelegram() {
 
 /**
  * Генерирует уникальный ID комнаты вида r_xxxxxxxxxx.
- * Используется, когда пользователь открыл приложение без ссылки-приглашения.
  */
 function generateRoomId() {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -174,7 +175,6 @@ function generateRoomId() {
       result += chars[arr[i] % chars.length];
     }
   } catch (e) {
-    // Фолбэк, если crypto недоступен
     result += Math.random().toString(36).slice(2, 10);
   }
   return result;
@@ -184,14 +184,6 @@ function generateRoomId() {
    3. ПАРСЕР ССЫЛОК
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Определяет тип источника по URL.
- * Возвращает { type, payload } где payload зависит от типа:
- *  - youtube: { videoId }
- *  - iframe:  { embedUrl }
- *  - native/hls: { url }
- *  - unknown: null
- */
 function parseUrl(rawUrl) {
   const url = (rawUrl || '').trim();
   if (!url) return { type: SOURCE_TYPES.UNKNOWN, payload: null };
@@ -205,20 +197,15 @@ function parseUrl(rawUrl) {
 
   const host = parsed.hostname.toLowerCase();
 
-  // ── 1. YouTube ─────────────────────────────────────────────
-  // youtube.com/watch?v=... | youtu.be/... | youtube.com/shorts/... | m.youtube.com
+  // YouTube
   if (
-    host === 'youtube.com' ||
-    host === 'www.youtube.com' ||
-    host === 'm.youtube.com' ||
-    host === 'music.youtube.com' ||
-    host === 'youtu.be' ||
-    host.endsWith('.youtube.com')
+    host === 'youtube.com' || host === 'www.youtube.com' ||
+    host === 'm.youtube.com' || host === 'music.youtube.com' ||
+    host === 'youtu.be' || host.endsWith('.youtube.com')
   ) {
     let videoId = null;
 
     if (host === 'youtu.be') {
-      // youtu.be/VIDEO_ID
       const parts = parsed.pathname.split('/').filter(Boolean);
       if (parts.length > 0) videoId = parts[0];
     } else {
@@ -226,7 +213,6 @@ function parseUrl(rawUrl) {
       if (v) {
         videoId = v;
       } else {
-        // Поддержка /shorts/VIDEO_ID
         const m = parsed.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/);
         if (m) videoId = m[1];
       }
@@ -238,26 +224,23 @@ function parseUrl(rawUrl) {
     return { type: SOURCE_TYPES.UNKNOWN, payload: { error: 'Не удалось распознать YouTube-видео' } };
   }
 
-  // ── 2. Прямые медиа-файлы (mp4, webm, ogg, mov) ──────────
+  // Прямые медиа-файлы
   const directMediaExt = /\.(mp4|webm|ogg|ogv|mov|m4v)(\?.*)?$/i;
   if (directMediaExt.test(parsed.pathname)) {
     return { type: SOURCE_TYPES.NATIVE, payload: { url } };
   }
 
-  // ── 3. HLS / m3u8 потоки ──────────────────────────────────
+  // HLS
   if (parsed.pathname.toLowerCase().endsWith('.m3u8')) {
     return { type: SOURCE_TYPES.HLS, payload: { url } };
   }
 
-  // ── 4. VK Video / Embedded iframe ─────────────────────────
-  const vkHosts = [
-    'vk.com', 'm.vk.com', 'vkvideo.ru', 'vk.cc', 'vk.com/video',
-  ];
+  // VK / iframe
+  const vkHosts = ['vk.com', 'm.vk.com', 'vkvideo.ru', 'vk.cc', 'vk.com/video'];
   if (
     vkHosts.includes(host) ||
     host.endsWith('.vk.com') ||
     host.endsWith('.vkvideo.ru') ||
-    // Более общий случай: любые embed/video-хостинги через iframe
     parsed.pathname.includes('/video') ||
     parsed.pathname.includes('/embed')
   ) {
@@ -267,25 +250,17 @@ function parseUrl(rawUrl) {
     }
   }
 
-  // ── 5. Фолбэк: любой http(s) URL — пробуем iframe ─────────
+  // Фолбэк: любой http(s) URL — iframe
   if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
-    // Для неизвестных сайтов пытаемся встроить через iframe.
-    // Многие сайты блокируют X-Frame-Options, поэтому может не работать —
-    // пользователь увидит пустой экран и мы покажем ошибку.
     return { type: SOURCE_TYPES.IFRAME, payload: { embedUrl: url, originalUrl: url } };
   }
 
   return { type: SOURCE_TYPES.UNKNOWN, payload: null };
 }
 
-/**
- * Строит embed-ссылку для iframe.
- * Для VK (vk.com / vkvideo.ru) используется штатный embed-формат.
- */
 function buildEmbedUrl(parsed) {
   const host = parsed.hostname.toLowerCase();
 
-  // vkvideo.ru/video-xxxxx_xxxxxx → https://vkvideo.ru/video_ext.php?oid=...&id=...&hd=2
   if (host === 'vkvideo.ru' || host === 'vk.com' || host === 'm.vk.com' || host.endsWith('.vkvideo.ru')) {
     const m = parsed.pathname.match(/video(-?\d+)_(\d+)/);
     if (m) {
@@ -294,12 +269,10 @@ function buildEmbedUrl(parsed) {
     }
   }
 
-  // Уже embed-ссылка
   if (parsed.pathname.includes('/video_ext.php')) {
     return parsed.href;
   }
 
-  // Обобщённые embed для известных расширений
   if (host.includes('vimeo.com')) {
     const videoId = parsed.pathname.split('/').filter(Boolean)[0];
     if (videoId && /^\d+$/.test(videoId)) {
@@ -314,7 +287,6 @@ function buildEmbedUrl(parsed) {
     }
   }
 
-  // Фолбэк: если в пути уже есть /embed/ — это уже embed-ссылка
   if (parsed.pathname.includes('/embed/')) {
     return parsed.href;
   }
@@ -326,9 +298,6 @@ function buildEmbedUrl(parsed) {
    4. ОБЩИЙ ПЕРЕКЛЮЧАТЕЛЬ ПЛЕЕРОВ
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Показывает нужный контейнер, скрывает остальные.
- */
 function showOnlyShell(shellId) {
   const shells = {
     yt: els.ytHost,
@@ -343,14 +312,9 @@ function showOnlyShell(shellId) {
   els.placeholder.classList.toggle('hidden', shellId !== null);
 }
 
-/**
- * Сброс всех плееров (останов, очистка).
- * Вызывается при смене источника.
- */
 function resetPlayers(keepVisible = false) {
   state.applyingRemote = true;
 
-  // HTML5 video
   try { els.nativeVideo.pause(); } catch (e) { /* ignore */ }
   try { els.nativeVideo.removeAttribute('src'); } catch (e) { /* ignore */ }
   try { els.nativeVideo.load(); } catch (e) { /* ignore */ }
@@ -360,14 +324,12 @@ function resetPlayers(keepVisible = false) {
     window.hlsInstance = null;
   }
 
-  // YouTube
   if (state.ytPlayer && typeof state.ytPlayer.destroy === 'function') {
     try { state.ytPlayer.destroy(); } catch (e) { /* ignore */ }
   }
   state.ytPlayer = null;
-  els.ytHost.innerHTML = ''; // очищаем контейнер под будущий плеер
+  els.ytHost.innerHTML = '';
 
-  // iframe
   try { els.embedFrame.src = 'about:blank'; } catch (e) { /* ignore */ }
 
   state.applyingRemote = false;
@@ -382,23 +344,17 @@ function resetPlayers(keepVisible = false) {
    5. YouTube ПЛЕЕР
    ═══════════════════════════════════════════════════════════ */
 
-// Колбэк, вызываемый YouTube IFrame API когда API готов.
-// НЕ может быть стрелочной функцией — API ищет глобальную функцию.
 window.onYouTubeIframeAPIReady = function () {
   console.log('[YouTube] IFrame API готов');
   state.ytReady = true;
   hideLoading();
 
-  // Если во время загрузки API пользователь уже вставил ссылку —
-  // загружаем её.
   if (state.pendingYouTubeVideoId) {
     loadYouTubeVideo(state.pendingYouTubeVideoId);
     state.pendingYouTubeVideoId = null;
   }
 };
 
-// Если YouTube API не загрузился за 10 секунд — сообщаем об ошибке
-// вместо вечного чёрного экрана.
 setTimeout(() => {
   if (!state.ytReady) {
     console.error('[YouTube] API не загрузился за 10 секунд');
@@ -408,23 +364,18 @@ setTimeout(() => {
   }
 }, 10000);
 
-/**
- * Загружает YouTube-видео (создаёт или переиспользует плеер).
- */
 function loadYouTubeVideo(videoId, autoplay = true) {
   const host = els.ytHost;
   host.classList.remove('hidden');
   showOnlyShell('yt');
 
   if (!state.ytReady) {
-    // API ещё грузится (или упал). Ставим в очередь.
     state.pendingYouTubeVideoId = videoId;
     setStatus('⏳ YouTube API загружается…');
     return;
   }
 
   if (!state.ytPlayer) {
-    // Создаём новый элемент, который API превратит в плеер
     host.innerHTML = `
       <div id="ytPlayer" class="youtube-player"
            style="width:100%;height:100%;"></div>
@@ -443,14 +394,9 @@ function loadYouTubeVideo(videoId, autoplay = true) {
         onReady: (event) => {
           console.log('[YouTube] Плеер готов');
           hideLoading();
-          // YouTube IFrame API НЕ возвращает Promise из playVideo().
-          // Вместо этого проверяем состояние плеера через onStateChange.
-          // Если браузер заблокирует автовоспроизведение, плеер
-          // останется в состоянии CUED (-1) / PAUSED — покажем подсказку.
           if (autoplay) {
             try { event.target.playVideo(); } catch (e) { /* ignore */ }
 
-            // Проверяем через 1.5 сек, началось ли воспроизведение
             setTimeout(() => {
               try {
                 const currentState = event.target.getPlayerState();
@@ -473,17 +419,10 @@ function loadYouTubeVideo(videoId, autoplay = true) {
       },
     });
   } else {
-    // Переиспользуем существующий плеер
     state.ytPlayer.loadVideoById(videoId, 0, autoplay ? 'large' : 'default');
   }
 }
 
-/**
- * Событие смены состояния YouTube-плеера.
- * Здесь — ключевая защита от петли событий:
- * если флаг applyingRemote = true, значит команда пришла с сервера,
- * и мы НЕ отправляем её обратно.
- */
 function handleYouTubeStateChange(event) {
   if (state.applyingRemote) return;
 
@@ -506,7 +445,6 @@ function handleYouTubeStateChange(event) {
         url: state.currentUrl,
         time: getYouTubeCurrentTime(),
       });
-      setStatus('▶ Воспроизведение');
       break;
 
     case YT.PlayerState.PAUSED:
@@ -515,7 +453,6 @@ function handleYouTubeStateChange(event) {
         url: state.currentUrl,
         time: getYouTubeCurrentTime(),
       });
-      setStatus('⏸ Пауза');
       break;
 
     case YT.PlayerState.ENDED:
@@ -524,7 +461,6 @@ function handleYouTubeStateChange(event) {
         url: state.currentUrl,
         time: getYouTubeCurrentTime(),
       });
-      setStatus('✓ Видео завершено');
       break;
   }
 }
@@ -540,22 +476,17 @@ function getYouTubeCurrentTime() {
    6. HTML5 VIDEO / HLS ПЛЕЕР
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Загружает прямой медиа-файл или HLS-поток в <video>.
- */
 function loadNativeOrHls(url, autoplay = true) {
   const video = els.nativeVideo;
   video.setAttribute('data-raw-url', url);
   showOnlyShell('video');
 
-  // .m3u8 → HLS.js (или нативный HLS на Safari / iOS)
   if (url.toLowerCase().endsWith('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
       if (window.hlsInstance) {
         try { window.hlsInstance.destroy(); } catch (e) { /* ignore */ }
       }
       window.hlsInstance = new Hls({
-        // Агрессивный старт + низкий буфер для лучшей синхронизации
         maxBufferLength: 30,
         maxMaxBufferLength: 60,
         enableWorker: true,
@@ -589,7 +520,6 @@ function loadNativeOrHls(url, autoplay = true) {
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      // Нативный HLS (Safari / iOS)
       video.src = url;
       video.addEventListener('loadedmetadata', () => {
         hideLoading();
@@ -602,7 +532,6 @@ function loadNativeOrHls(url, autoplay = true) {
       hideLoading();
     }
   } else {
-    // Прямой .mp4 / .webm и т.д.
     video.src = url;
     video.load();
     if (autoplay) {
@@ -610,7 +539,6 @@ function loadNativeOrHls(url, autoplay = true) {
     }
   }
 
-  // Для прямых .mp4 — скрываем индикатор по загрузке метаданных
   video.addEventListener('loadedmetadata', () => {
     hideLoading();
   }, { once: true });
@@ -623,9 +551,6 @@ function loadNativeOrHls(url, autoplay = true) {
 function loadIframe(embedUrl) {
   showOnlyShell('iframe');
   els.embedFrame.src = embedUrl;
-
-  // Скрываем индикатор загрузки после небольшой паузы,
-  // чтобы iframe успел начать рендериться
   setTimeout(hideLoading, 1500);
   setStatus('🖥 Встроенный плеер');
 }
@@ -634,46 +559,34 @@ function loadIframe(embedUrl) {
    8. ОСНОВНАЯ ТОЧКА ВХОДА ЗАГРУЗКИ МЕДИА
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Парсим URL и запускаем правильный плеер.
- * ОПЦИЯ: если emit = true — уведомляем сервер (CHANGE_MEDIA),
- * чтобы все участники комнаты тоже загрузили это видео.
- */
 function loadMedia(rawUrl, opts = {}) {
   const { emit = true, autoplay = true, incoming = false } = opts;
 
   const parsed = parseUrl(rawUrl);
 
-  // ── Обработка ошибок ──────────────────────────────────────
   if (parsed.type === SOURCE_TYPES.UNKNOWN || !parsed.payload) {
     const errMsg = parsed.payload?.error || 'Не удалось распознать ссылку';
     console.error('[LoadMedia] Ошибка:', errMsg);
     setStatus('⚠️ ' + errMsg);
     showSnack('❌ ' + errMsg);
+    hideLoading();
     return false;
   }
 
-  // Запоминаем текущий URL и тип
   state.currentUrl = rawUrl.trim();
   state.currentType = parsed.type;
 
-  // Сбрасываем старые плееры
   resetPlayers(true);
-
-  // Показываем индикатор загрузки вместо чёрного экрана
   showLoading('Загрузка видео…');
 
-  // ── Запускаем нужный плеер ────────────────────────────────
   switch (parsed.type) {
     case SOURCE_TYPES.YOUTUBE:
       loadYouTubeVideo(parsed.payload.videoId, autoplay && !incoming);
-      setStatus('🎬 Загружаем YouTube…');
       break;
 
     case SOURCE_TYPES.HLS:
     case SOURCE_TYPES.NATIVE:
       loadNativeOrHls(parsed.payload.url, autoplay && !incoming);
-      setStatus('📡 Загружаем видео…');
       break;
 
     case SOURCE_TYPES.IFRAME:
@@ -682,11 +595,13 @@ function loadMedia(rawUrl, opts = {}) {
 
     default:
       setStatus('⚠️ Неизвестный тип медиа');
+      hideLoading();
       return false;
   }
 
-  // ── Уведомляем остальных участников комнаты ───────────────
-  // (черновик события CHANGE_MEDIA передаётся серверу)
+  // Обновляем "Сейчас играет"
+  els.nowPlayingTitle.textContent = formatTitle(state.currentUrl);
+
   if (emit && !incoming) {
     emitIfNeeded('CHANGE_MEDIA', {
       mediaType: parsed.type,
@@ -695,25 +610,32 @@ function loadMedia(rawUrl, opts = {}) {
     });
   }
 
-  try {
-    els.urlInput.value = '';
-  } catch (e) { /* ignore */ }
+  closeDrawer();
 
   return true;
+}
+
+function formatTitle(url) {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace('www.', '');
+    if (parsed.hostname.includes('youtube.com') || parsed.hostname.includes('youtu.be')) {
+      return 'YouTube — ' + (parsed.searchParams.get('v') || 'видео');
+    }
+    if (parsed.pathname.endsWith('.m3u8')) return 'HLS-поток — ' + host;
+    const filename = parsed.pathname.split('/').filter(Boolean).pop();
+    if (filename) return filename + ' — ' + host;
+    return host;
+  } catch (e) {
+    return url;
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
    9. SOCKET.IO — ПОДКЛЮЧЕНИЕ И ОБРАБОТКА СОБЫТИЙ
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Подключение к серверу Socket.io.
- * Используем тот же origin, где открыт сайт (render/railway настроят сами).
- */
 function connectSocket() {
-  // При определении адреса поддерживаем локальный запуск:
-  //  - на localhost / 127.0.0.1 используем текущий origin
-  //  - в Telegram Mini App origin всегда будет HTTPS (после деплоя)
   const socketUrl = window.location.origin;
 
   state.socket = io(socketUrl, {
@@ -751,21 +673,18 @@ function connectSocket() {
     console.log('[Socket] hello →', data);
   });
 
-  // ── Пришёл запрос от нового участника: отдаём ему состояние ──
+  // ── Запрос состояния от нового участника ─────────────────
   s.on('request_state', ({ from }) => {
     console.log('[Socket] Запрос состояния от', from);
 
-    // Если у нас уже есть загруженное видео — отправляем его
     if (state.currentUrl && state.currentType !== SOURCE_TYPES.UNKNOWN) {
       const time = getCurrentPlayhead();
       s.emit('CHANGE_MEDIA', {
         mediaType: state.currentType,
         url: state.currentUrl,
         time,
-        forPeer: from, // сервер это проигнорирует, но для читаемости логов
+        forPeer: from,
       });
-      // Дополнительно отправим актуальное время, чтобы новый
-      // участник сразу перемотал на правильную позицию
       setTimeout(() => {
         s.emit('SEEK', {
           mediaType: state.currentType,
@@ -776,7 +695,7 @@ function connectSocket() {
     }
   });
 
-  // ── Ивенты синхронизации (команды от других участников) ──
+  // ── Ивенты синхронизации ─────────────────────────────────
   s.on('PLAY', (data) => {
     console.log('[Sync] PLAY ←', data);
     handleRemotePlay(data);
@@ -800,6 +719,8 @@ function connectSocket() {
   s.on('USER_LEFT', ({ id }) => {
     console.log('[Sync] USER_LEFT ←', id);
     state.peers = state.peers.filter((p) => p.id !== id);
+    updatePeersCount();
+    renderDrawerPeers();
     showSnack('👋 Участник покинул комнату');
   });
 
@@ -809,16 +730,27 @@ function connectSocket() {
       id,
       name: i === 0 ? 'Участник 1' : 'Участник ' + (i + 1),
     }));
-    renderPeersModal();
+    updatePeersCount();
+    renderDrawerPeers();
+  });
+
+  // ── Чат ───────────────────────────────────────────────────
+  s.on('CHAT', (data) => {
+    console.log('[Chat] ←', data);
+    addChatMessage(data, false);
+  });
+
+  s.on('CHAT_HISTORY', ({ messages }) => {
+    console.log('[Chat] История ←', messages.length, 'сообщений');
+    if (Array.isArray(messages)) {
+      state.messages = [];
+      els.chatMessages.innerHTML = '';
+      checkChatEmpty();
+      messages.forEach((msg) => addChatMessage(msg, msg.socketId === state.socket?.id));
+    }
   });
 }
 
-/**
- * Emit события на сервер.
- * Если emitIfNeeded вызывается со стороны локального события плеера
- * (напр. onplay), а мы в этот момент применяем remote-команду —
- * событие НЕ отправляется (защита от петли).
- */
 function emitIfNeeded(eventName, payload) {
   if (state.applyingRemote) {
     console.log('[Emit] Пропуск (applyingRemote)', eventName);
@@ -826,7 +758,7 @@ function emitIfNeeded(eventName, payload) {
   }
   state.socket.emit(eventName, {
     ...payload,
-    sender: state.userId || state.socket.id,
+    sender: state.userName || state.socket.id,
   });
 }
 
@@ -834,17 +766,11 @@ function emitIfNeeded(eventName, payload) {
    10. ОБРАБОТЧИКИ REMOTE-КОМАНД
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Устанавливает флаг applyingRemote на время выполнения команды,
- * чтобы локальные события плеера не порождали ответные события.
- */
 function withRemoteFlag(fn) {
   state.applyingRemote = true;
   try {
     fn();
   } finally {
-    // Небольшая задержка, чтобы всплеск событий (например,
-    // серия событий buffering/playing) успел обработаться.
     setTimeout(() => {
       state.applyingRemote = false;
     }, 50);
@@ -854,7 +780,6 @@ function withRemoteFlag(fn) {
 function handleRemotePlay(data) {
   const type = data.mediaType || state.currentType;
 
-  // Если у нас другое видео — догружаем его, но НЕ запускаем
   if (data.url && data.url !== state.currentUrl) {
     handleRemoteMedia({ ...data, autoplay: false });
   }
@@ -864,7 +789,6 @@ function handleRemotePlay(data) {
       case SOURCE_TYPES.YOUTUBE:
         if (state.ytPlayer && typeof state.ytPlayer.playVideo === 'function') {
           try { state.ytPlayer.playVideo(); } catch (e) { /* ignore */ }
-          // Точная синхронизация времени
           if (typeof data.time === 'number' && data.time > 0) {
             syncYouTubeTime(data.time);
           }
@@ -872,19 +796,24 @@ function handleRemotePlay(data) {
         break;
 
       case SOURCE_TYPES.NATIVE:
-      case SOURCE_TYPES.HLS:
-        // Точное время: если сильно разошлись — перематываем
+      case SOURCE_TYPES.HLS: {
         const desired = data.time || 0;
         const current = els.nativeVideo.currentTime || 0;
-        if (Math.abs(desired - current) > SYNC_THRESHOLD_SECONDS && desired > 0) {
+
+        // Если видео ещё не загружено — запомним время до loadedmetadata
+        if (els.nativeVideo.readyState < 2 && desired > 0) {
+          els.nativeVideo.addEventListener('loadedmetadata', () => {
+            try { els.nativeVideo.currentTime = desired; } catch (e) { /* ignore */ }
+          }, { once: true });
+        } else if (Math.abs(desired - current) > SYNC_THRESHOLD_SECONDS && desired > 0) {
           els.nativeVideo.currentTime = desired;
         }
+
         els.nativeVideo.play().catch(() => handleAutoplayBlocked('видео'));
         break;
+      }
 
       case SOURCE_TYPES.IFRAME:
-        // Еслиrame-плееры (VK и др.) не дают API синхронизации времени.
-        // Максимум, что можем — просто показать и надеяться на эмбед.
         console.warn('[Sync] PLAY для iframe — синхронизация времени невозможна');
         break;
     }
@@ -939,7 +868,6 @@ function handleRemoteSeek(data) {
       case SOURCE_TYPES.NATIVE:
       case SOURCE_TYPES.HLS: {
         const video = els.nativeVideo;
-        // Если медиа ещё не загружено — ставим "pending seek"
         if (video.readyState < 2) {
           video.addEventListener('loadedmetadata', () => {
             try { video.currentTime = seekTo; } catch (e) { /* ignore */ }
@@ -962,7 +890,6 @@ function handleRemoteMedia(data) {
   const { url, mediaType, time, autoplay = true } = data;
 
   if (!url || url === state.currentUrl) {
-    // То же видео — ничего не делаем (или корректируем время)
     if (typeof time === 'number' && time > 0) {
       handleRemoteSeek({ ...data, mediaType: mediaType || state.currentType, time });
     }
@@ -971,16 +898,12 @@ function handleRemoteMedia(data) {
 
   console.log('[Sync] Загружаем удалённое медиа:', mediaType, url);
 
-  // Загружаем НОВОЕ видео. incoming=true → не отправлять CHANGE_MEDIA
-  // обратно на сервер (защита от петли).
   loadMedia(url, {
     emit: false,
     autoplay: autoplay,
     incoming: true,
   });
 
-  // Если гость приходит, когда видео уже играет у хоста —
-  // применяем время из payload CHANGE_MEDIA.
   if (typeof time === 'number' && time > 0) {
     setTimeout(() => {
       handleRemoteSeek({ ...data, mediaType: mediaType || state.currentType, time });
@@ -995,9 +918,6 @@ function handleRemoteMedia(data) {
    11. СИНХРОНИЗАЦИЯ ВРЕМЕНИ
    ═══════════════════════════════════════════════════════════ */
 
-/**
- * Текущая позиция воспроизведения (секунды) активного плеера.
- */
 function getCurrentPlayhead() {
   switch (state.currentType) {
     case SOURCE_TYPES.YOUTUBE:
@@ -1012,9 +932,6 @@ function getCurrentPlayhead() {
   }
 }
 
-/**
- * Синхронизация YouTube: если расхождение > 0.5 сек — перематываем.
- */
 function syncYouTubeTime(desired) {
   if (!state.ytPlayer || typeof state.ytPlayer.getCurrentTime !== 'function') return;
 
@@ -1027,16 +944,6 @@ function syncYouTubeTime(desired) {
   } catch (e) { /* ignore */ }
 }
 
-/* ═══════════════════════════════════════════════════════════
-   12. ИНТЕРВАЛ ПОДДЕРЖАНИЯ СИНХРОНИЗАЦИИ (ОПЦИОНАЛЬНО)
-   ═══════════════════════════════════════════════════════════ */
-
-/**
- * Фоновая задача: пока видео играет, каждые 5 секунд сверяем
- * время с сервером через SEEK-событие. Это «мягкая» синхронизация —
- * при малом расхождении ничего не происходит, при большом — перемотка.
- * Отключаем при паузе, чтобы не дёргать плеер.
- */
 let syncInterval = null;
 
 function startSyncLoop() {
@@ -1048,14 +955,12 @@ function startSyncLoop() {
 
     const type = state.currentType;
     if (type !== SOURCE_TYPES.YOUTUBE && type !== SOURCE_TYPES.NATIVE && type !== SOURCE_TYPES.HLS) {
-      return; // iframe не синхронизируем по времени
+      return;
     }
 
     const time = getCurrentPlayhead();
     if (time <= 0) return;
 
-    // Периодически шлём SEEK (сервер перешлёт остальным,
-    // а они применят перемотку только при расхождении > 0.5с).
     emitIfNeeded('SEEK', {
       mediaType: type,
       url: state.currentUrl,
@@ -1072,7 +977,7 @@ function stopSyncLoop() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   13. СОБЫТИЯ ЛОКАЛЬНОГО HTML5-ПЛЕЕРА
+   12. СОБЫТИЯ ЛОКАЛЬНОГО HTML5-ПЛЕЕРА
    ═══════════════════════════════════════════════════════════ */
 
 function bindNativeVideoEvents() {
@@ -1085,7 +990,6 @@ function bindNativeVideoEvents() {
       url: state.currentUrl,
       time: video.currentTime,
     });
-    setStatus('▶ Воспроизведение');
     startSyncLoop();
   });
 
@@ -1096,7 +1000,6 @@ function bindNativeVideoEvents() {
       url: state.currentUrl,
       time: video.currentTime,
     });
-    setStatus('⏸ Пауза');
     stopSyncLoop();
   });
 
@@ -1115,7 +1018,6 @@ function bindNativeVideoEvents() {
       url: state.currentUrl,
       time: video.duration || video.currentTime,
     });
-    setStatus('✓ Видео завершено');
   });
 
   video.addEventListener('error', (e) => {
@@ -1127,14 +1029,12 @@ function bindNativeVideoEvents() {
 }
 
 /* ═══════════════════════════════════════════════════════════
-   14. UI-ХЕЛПЕРЫ
+   13. UI-ХЕЛПЕРЫ
    ═══════════════════════════════════════════════════════════ */
 
+// Статус теперь выводится в snackbar, т.к. нижней панели нет
 function setStatus(text) {
-  if (els.statusLabel) {
-    els.statusLabel.textContent = text;
-    els.statusLabel.title = text;
-  }
+  console.log('[Status]', text);
 }
 
 function updateConnUI(connected) {
@@ -1176,75 +1076,116 @@ function showSnack(text, ms = 2500) {
 
 function handleAutoplayBlocked(sourceName) {
   console.warn(`[Autoplay] Блокировка автовоспроизведения: ${sourceName}`);
-  setStatus(`⚠️ Нажмите «Play», чтобы начать (${sourceName})`);
-  showSnack('🔇 Автовоспроизведение заблокировано — нажмите Play');
+  showSnack(`🔇 Нажмите «Play», чтобы начать (${sourceName})`);
+}
+
+function updatePeersCount() {
+  if (els.peersCount) {
+    els.peersCount.textContent = state.peers.length + 1;
+  }
+}
+
+function renderDrawerPeers() {
+  if (!els.drawerPeers) return;
+
+  const peersHtml = [
+    `<div class="drawer-peer">🎬 Вы (${escapeHtml(state.userName)})</div>`,
+    ...state.peers.map((p) => (
+      `<div class="drawer-peer">👤 ${escapeHtml(p.name)}</div>`
+    )),
+  ].join('');
+
+  els.drawerPeers.innerHTML = peersHtml;
 }
 
 /* ═══════════════════════════════════════════════════════════
-   15. МОДАЛКА «ПИРЫ»
+   14. ЧАТ
    ═══════════════════════════════════════════════════════════ */
 
-function renderPeersModal() {
-  if (!modalOverlayEl) return;
-
-  const listEl = modalOverlayEl.querySelector('.peers-list');
-  const countEl = modalOverlayEl.querySelector('.peer-count');
-
-  if (countEl) {
-    countEl.textContent = `Всего в комнате: ${state.peers.length + 1}`;
+function checkChatEmpty() {
+  if (els.chatEmpty) {
+    els.chatEmpty.classList.toggle('hidden', state.messages.length > 0);
   }
-
-  if (!listEl) return;
-
-  if (state.peers.length === 0) {
-    listEl.innerHTML = `
-      <div class="peer-item">
-        <div class="peer-avatar">🎬</div>
-        <div class="peer-name">Вы одни в комнате</div>
-        <span class="peer-id">—</span>
-      </div>
-    `;
-    return;
-  }
-
-  listEl.innerHTML = state.peers.map((peer, i) => `
-    <div class="peer-item">
-      <div class="peer-avatar">${peer.name.charAt(0).toUpperCase()}</div>
-      <div class="peer-name">${escapeHtml(peer.name)}</div>
-      <span class="peer-id">${escapeHtml(shortId(peer.id))}</span>
-    </div>
-  `).join('');
 }
 
-function openPeersModal() {
-  if (!modalOverlayEl) {
-    modalOverlayEl = document.createElement('div');
-    modalOverlayEl.className = 'modal-overlay';
-    modalOverlayEl.innerHTML = `
-      <div class="modal-sheet">
-        <div class="modal-title">
-          👥 Участники
-          <div class="peer-count" style="font-size:12px;color:var(--tg-hint);font-weight:400;margin-top:4px;"></div>
-        </div>
-        <div class="peers-list"></div>
-        <button class="modal-close" type="button">Закрыть</button>
-      </div>
-    `;
+function addChatMessage(msg, mine = false) {
+  if (!msg || !msg.text) return;
 
-    modalOverlayEl.addEventListener('click', (event) => {
-      if (event.target === modalOverlayEl || event.target.classList.contains('modal-close')) {
-        modalOverlayEl.classList.remove('show');
-      }
-    });
+  state.messages.push(msg);
+  checkChatEmpty();
+  if (els.chatEmpty) els.chatEmpty.classList.add('hidden');
 
-    document.body.appendChild(modalOverlayEl);
+  const isMine = mine || (state.socket && msg.socketId === state.socket.id);
+
+  const el = document.createElement('div');
+  el.className = 'msg ' + (isMine ? 'mine' : 'theirs');
+
+  const time = formatTime(msg.time);
+  const sender = escapeHtml(msg.sender || 'Гость');
+
+  el.innerHTML = `
+    <div class="msg-meta">
+      <span class="msg-sender">${isMine ? 'Вы' : sender}</span>
+      <span class="msg-time">${time}</span>
+    </div>
+    <div class="msg-text">${escapeHtml(msg.text)}</div>
+  `;
+
+  els.chatMessages.appendChild(el);
+  scrollChatToBottom();
+}
+
+function scrollChatToBottom() {
+  requestAnimationFrame(() => {
+    els.chatMessages.scrollTop = els.chatMessages.scrollHeight;
+  });
+}
+
+function formatTime(ts) {
+  if (!ts) return '';
+  try {
+    const d = new Date(ts);
+    return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+  } catch (e) {
+    return '';
   }
+}
 
-  // Запрашиваем актуальный список пиров на сервере
-  state.socket.emit('GET_PEERS');
+function sendChatMessage() {
+  const text = els.chatInput.value.trim();
+  if (!text) return;
 
-  modalOverlayEl.classList.add('show');
-  renderPeersModal();
+  state.socket.emit('CHAT', {
+    text,
+    sender: state.userName,
+  });
+
+  // Оптимистично показываем своё сообщение
+  addChatMessage({
+    id: 'local_' + Date.now(),
+    text,
+    sender: state.userName,
+    socketId: state.socket.id,
+    time: Date.now(),
+  }, true);
+
+  els.chatInput.value = '';
+  els.chatInput.focus();
+}
+
+/* ═══════════════════════════════════════════════════════════
+   15. БОКОВАЯ ПАНЕЛЬ «СМЕНИТЬ ВИДЕО»
+   ═══════════════════════════════════════════════════════════ */
+
+function openDrawer() {
+  els.mediaDrawer.classList.add('open');
+  els.drawerOverlay.classList.remove('hidden');
+  setTimeout(() => els.urlInput.focus(), 300);
+}
+
+function closeDrawer() {
+  els.mediaDrawer.classList.remove('open');
+  els.drawerOverlay.classList.add('hidden');
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1258,9 +1199,9 @@ async function inviteFriend() {
     await navigator.clipboard.writeText(inviteUrl);
     showSnack('🔗 Ссылка-приглашение скопирована');
   } catch (e) {
-    // Копирование не сработало — показываем URL в input и в snackbar
     console.warn('[Invite] Clipboard недоступен:', e);
     els.urlInput.value = inviteUrl;
+    openDrawer();
     showSnack('🔗 Ссылка скопирована в поле ввода');
   }
 }
@@ -1276,8 +1217,6 @@ function makeInviteUrl() {
    ═══════════════════════════════════════════════════════════ */
 
 function escapeHtml(str) {
-  // NB: используем String.fromCharCode(38) для '&', чтобы автоформатирование
-  // редактора (конвертация HTML-сущностей) не сломало экранирование.
   const ESCAPE_MAP = {
     '&': String.fromCharCode(38) + 'amp;',
     '<': String.fromCharCode(38) + 'lt;',
@@ -1289,16 +1228,16 @@ function escapeHtml(str) {
   return String(str).replace(/[&<>"']/g, (ch) => ESCAPE_MAP[ch]);
 }
 
-function shortId(id) {
-  if (!id) return '—';
-  return id.slice(0, 8);
-}
-
 /* ═══════════════════════════════════════════════════════════
    18. ОБРАБОТКА UI-СОБЫТИЙ
    ═══════════════════════════════════════════════════════════ */
 
 function bindUI() {
+  // Открыть панель смены видео
+  els.changeMediaBtn.addEventListener('click', openDrawer);
+  els.drawerCloseBtn.addEventListener('click', closeDrawer);
+  els.drawerOverlay.addEventListener('click', closeDrawer);
+
   // Кнопка «Включить»
   els.loadBtn.addEventListener('click', () => {
     const url = els.urlInput.value.trim();
@@ -1323,25 +1262,33 @@ function bindUI() {
     const btn = event.target.closest('.preset-btn');
     if (!btn) return;
     const url = btn.dataset.url;
-    if (url) {
-      loadMedia(url);
-    }
+    if (url) loadMedia(url);
+  });
+
+  // Быстрый выбор
+  els.quickList.addEventListener('click', (event) => {
+    const btn = event.target.closest('.quick-item');
+    if (!btn) return;
+    const url = btn.dataset.url;
+    if (url) loadMedia(url);
   });
 
   // Пригласить
   els.inviteBtn.addEventListener('click', inviteFriend);
 
-  // Пиры
-  els.peersBtn.addEventListener('click', openPeersModal);
+  // Пиры — открываем панель и показываем участников
+  els.peersBtn.addEventListener('click', () => {
+    state.socket.emit('GET_PEERS');
+    openDrawer();
+  });
 
-  // Сброс
-  els.resetBtn.addEventListener('click', () => {
-    resetPlayers(false);
-    stopSyncLoop();
-    state.currentType = SOURCE_TYPES.UNKNOWN;
-    state.currentUrl = '';
-    setStatus('Ожидание видео…');
-    showSnack('↺ Плеер сброшен');
+  // Чат
+  els.chatSendBtn.addEventListener('click', sendChatMessage);
+  els.chatInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      sendChatMessage();
+    }
   });
 }
 
@@ -1350,7 +1297,7 @@ function bindUI() {
    ═══════════════════════════════════════════════════════════ */
 
 (function init() {
-  console.log('%c RAVE TMA v1.0 — синхронный просмотр ', 'background:#5288c1;color:#fff;font-size:14px;padding:6px;border-radius:4px');
+  console.log('%c RAVE TMA — синхронный просмотр в стиле Rave ', 'background:#5288c1;color:#fff;font-size:14px;padding:6px;border-radius:4px');
 
   // Telegram SDK
   initTelegram();
@@ -1369,7 +1316,8 @@ function bindUI() {
   connectSocket();
 
   // Статус
-  setStatus('Ожидание видео…');
+  renderDrawerPeers();
+  updatePeersCount();
 
   // Автозапуск по URL ?media=... (удобно для прямых ссылок из чата)
   const mediaParam = new URLSearchParams(window.location.search).get('media');
