@@ -222,10 +222,10 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Плеер занимает ~48% высоты, как в Rave */
-  height: 48vh;
+  /* Фиксированная высота — не уменьшается при открытии клавиатуры */
+  height: var(--player-h, 260px);
   min-height: 200px;
-  max-height: 50vh;
+  max-height: 320px;
   overflow: hidden;
 }
 
@@ -415,36 +415,53 @@ input {
 .chat-input-row {
   flex-shrink: 0;
   display: flex;
-  gap: 6px;
-  padding: 6px 8px calc(6px + var(--safe-bottom)) 8px;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px calc(6px + var(--safe-bottom)) 10px;
   border-top: 1px solid var(--border);
-  background: var(--tg-secondary);
+  background: var(--tg-bg);
 }
 
 .chat-input {
   flex: 1;
   min-width: 0;
-  background: var(--tg-bg);
+  background: var(--tg-secondary);
   border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 8px 14px;
-  font-size: 13px;
+  padding: 7px 14px;
+  font-size: 14px;
   color: var(--tg-text);
+  height: 36px;
+}
+
+.chat-input::placeholder {
+  color: var(--tg-hint);
 }
 
 .chat-input:focus {
-  border-color: var(--tg-button);
+  border-color: var(--border-strong);
+  background: var(--tg-secondary);
 }
 
 #chatSendBtn {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  color: var(--tg-text);
+  font-size: 15px;
+}
+
+#chatSendBtn:active {
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  border-color: var(--tg-button);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -777,15 +794,9 @@ input {
   .logo-text { font-size: 14px; }
   .conn-status { font-size: 10px; }
   .btn-sm { font-size: 11px; padding: 5px 10px; }
-  .player-section { height: 42vh; min-height: 170px; }
 }
 
 @media (max-height: 560px) {
-  .player-section {
-    height: 38vh;
-    min-height: 140px;
-    max-height: 200px;
-  }
   .logo-icon { width: 22px; height: 22px; font-size: 10px; }
   .logo-text { font-size: 13px; }
   .app-header { padding-top: calc(4px + var(--safe-top)); gap: 4px; }

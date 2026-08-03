@@ -174,7 +174,20 @@ function initTelegram() {
     user: state.userName,
   });
 
+  // Фиксируем высоту плеера по стабильной высоте вьюпорта Telegram,
+  // чтобы видео не уменьшалось при открытии клавиатуры.
+  const setPlayerHeight = () => {
+    const stableH = (typeof tg.viewportStableHeight === 'number' && tg.viewportStableHeight > 0)
+      ? tg.viewportStableHeight
+      : window.innerHeight;
+    const playerH = Math.min(Math.max(stableH * 0.48, 200), 320);
+    document.documentElement.style.setProperty('--player-h', playerH + 'px');
+  };
+  setPlayerHeight();
+
   tg.onEvent('viewportChanged', () => {
+    // НЕ обновляем --player-h при изменении вьюпорта (клавиатура),
+    // чтобы видео не уменьшалось.
     if (state.ytPlayer && typeof state.ytPlayer.getIframe === 'function') {
       requestAnimationFrame(() => {
         try { state.ytPlayer.getIframe(); } catch (e) { /* ignore */ }
