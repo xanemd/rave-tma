@@ -812,9 +812,8 @@ function connectSocket() {
     console.log('[Socket] room-state ←', data);
 
     const roomUrl = data.currentUrl;
-    const roomTime = typeof data.currentTime === 'number'
-      ? data.currentTime
-      : (typeof data.position === 'number' ? data.position : 0);
+    // Server-authoritative: вычисляем позицию по startedAt/position/serverTime
+    const roomTime = getServerAuthoritativePosition(data);
     const roomPlaying = !!data.isPlaying;
 
     // Применяем currentType до инициализации плеера
@@ -840,16 +839,33 @@ function connectSocket() {
     }
 
     if (roomUrl) {
-      // Загружаем медиа, перематываем на нужную секунду и запускаем,
-      // если хост уже воспроизводит видео.
-      // handleRemoteMedia сам дождётся готовности плеера.
-      handleRemoteMedia({
-        mediaType: state.currentType,
-        url: roomUrl,
-        time: roomTime,
-        autoplay: roomPlaying,
-        serverTime: data.serverTime,
-      });
+      if (roomUrl !== state.currentUrl) {
+        // URL изменился — загружаем новое медиа
+        handleRemoteMedia({
+          mediaType: state.currentType,
+          url: roomUrl,
+          time: roomTime,
+          autoplay: roomPlaying,
+          serverTime: data.serverTime,
+        });
+      } else if (state.currentUrl === roomUrl) {
+        // URL тот же — только обновляем позицию/статус без перезагрузки
+        if (roomPlaying) {
+          handleRemotePlay({
+            mediaType: state.currentType,
+            url: roomUrl,
+            time: roomTime,
+            serverTime: data.serverTime,
+          });
+        } else {
+          handleRemotePause({
+            mediaType: state.currentType,
+            url: roomUrl,
+            time: roomTime,
+            serverTime: data.serverTime,
+          });
+        }
+      }
     } else if (state.currentUrl) {
       // В комнате нет медиа — сбрасываем плеер
       resetPlayers();
@@ -1040,6 +1056,19 @@ function getAdjustedRemoteTime(data) {
   if (typeof data.serverTime !== 'number') return baseTime;
   const elapsed = (getServerNowMs() - data.serverTime) / 1000;
   return Math.max(0, baseTime + elapsed);
+}
+
+/**
+ * Server-authoritative позиция (как в Rave):
+ * если есть startedAt — вычисляем текущую позицию по серверному времени.
+ */
+function getServerAuthoritativePosition(data) {
+  if (data.isPlaying && data.startedAt > 0) {
+    const position = typeof data.position === 'number' ? data.position : 0;
+    const elapsed = (getServerNowMs() - data.startedAt) / 1000;
+    return Math.max(0, position + elapsed);
+  }
+  return typeof data.position === 'number' ? data.position : 0;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1317,40 +1346,8 @@ function syncYouTubeTime(desired) {
   } catch (e) { /* ignore */ }
 }
 
-let syncInterval = null;
-
-function startSyncLoop() {
-  if (syncInterval) clearInterval(syncInterval);
-
-  // Мягкий таймер для компенсации дрейфа — раз в 10 сек.
-  // Основная синхронизация идёт по событиям play/pause/seek.
-  syncInterval = setInterval(() => {
-    if (!state.socket || !state.connected) return;
-    if (state.applyingRemote) return;
-    if (!state.isHost) return;
-
-    const type = state.currentType;
-    if (type !== SOURCE_TYPES.YOUTUBE && type !== SOURCE_TYPES.NATIVE && type !== SOURCE_TYPES.HLS) {
-      return;
-    }
-
-    const time = getCurrentPlayhead();
-    if (time <= 0) return;
-
-    emitIfNeeded('SEEK', {
-      mediaType: type,
-      url: state.currentUrl,
-      time,
-    });
-  }, 10000);
-}
-
-function stopSyncLoop() {
-  if (syncInterval) {
-    clearInterval(syncInterval);
-    syncInterval = null;
-  }
-}
+// В server-authoritative архитектуре (как в Rave) таймеры не нужны:
+// сервер сам отправляет ROOM_STATE после каждого изменения.
 
 /* ═══════════════════════════════════════════════════════════
    12. СОБЫТИЯ ЛОКАЛЬНОГО HTML5-ПЛЕЕРА
@@ -1366,7 +1363,6 @@ function bindNativeVideoEvents() {
       url: state.currentUrl,
       time: video.currentTime,
     });
-    startSyncLoop();
   });
 
   video.addEventListener('pause', () => {
@@ -1376,7 +1372,6 @@ function bindNativeVideoEvents() {
       url: state.currentUrl,
       time: video.currentTime,
     });
-    stopSyncLoop();
   });
 
   video.addEventListener('seeked', () => {

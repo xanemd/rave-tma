@@ -185,6 +185,7 @@ io.on('connection', (socket) => {
       time: pos,
       serverTime: Date.now(),
     });
+    io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
   socket.on('PAUSE', (data) => {
@@ -206,6 +207,7 @@ io.on('connection', (socket) => {
       time: pos,
       serverTime: Date.now(),
     });
+    io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
   socket.on('SEEK', (data) => {
@@ -236,6 +238,7 @@ io.on('connection', (socket) => {
     } else {
       socket.to(roomId).emit('SEEK', seekEvent);
     }
+    io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
   socket.on('CHANGE_MEDIA', (data) => {
@@ -272,6 +275,7 @@ io.on('connection', (socket) => {
     } else {
       socket.to(roomId).emit('CHANGE_MEDIA', mediaEvent);
     }
+    io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
   // ── Очередь видео ──────────────────────────────────────────
