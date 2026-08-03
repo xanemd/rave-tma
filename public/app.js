@@ -29,6 +29,7 @@ const SYNC_THRESHOLD_SECONDS = 0.5;
 
 const SOURCE_TYPES = {
   YOUTUBE: 'youtube',
+  VIMEO: 'vimeo',
   HLS: 'hls',
   NATIVE: 'native',
   IFRAME: 'iframe',
@@ -45,11 +46,13 @@ const state = {
 
   ytReady: false,
   ytPlayer: null,
+  ytPlayerReady: false,
   pendingYouTubeVideoId: null,
 
   applyingRemote: false,
 
   peers: [],
+  viewers: 1,
 
   userName: 'Гость',
   userId: null,
@@ -58,8 +61,13 @@ const state = {
   messages: [],
 
   // Rave-система
-  isHost: false,
+  isHost: null,
   queue: [],
+  serverTimeOffsetMs: 0,
+  serverPingMs: 0,
+  clockSyncInterval: null,
+  vimeoReady: false,
+  pendingSocketEvents: [],
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -79,6 +87,12 @@ const els = {
   inviteBtn: $('#inviteBtnHeader'),
   peersBtn: $('#peersBtnHeader'),
   peersCount: $('#peersCountHeader'),
+
+  // Диагностика
+  diagRoomState: $('#diagRoomState'),
+  diagUrl: $('#diagUrl'),
+  diagType: $('#diagType'),
+  diagStatus: $('#diagStatus'),
 
   // Плеер
   placeholder: $('#placeholder'),
@@ -242,6 +256,15 @@ function parseUrl(rawUrl) {
     return { type: SOURCE_TYPES.HLS, payload: { url } };
   }
 
+  // Vimeo
+  if (host.includes('vimeo.com')) {
+    const pathSegments = parsed.pathname.split('/').filter(Boolean);
+    const vimeoId = pathSegments.find((segment) => /^\d+$/.test(segment));
+    if (vimeoId) {
+      return { type: SOURCE_TYPES.VIMEO, payload: { videoId: vimeoId } };
+    }
+  }
+
   // VK / iframe
   const vkHosts = ['vk.com', 'm.vk.com', 'vkvideo.ru', 'vk.cc', 'vk.com/video'];
   if (
@@ -319,8 +342,11 @@ function showOnlyShell(shellId) {
   els.placeholder.classList.toggle('hidden', shellId !== null);
 }
 
+window.addEventListener('message', handleVimeoPostMessage, false);
+
 function resetPlayers(keepVisible = false) {
   state.applyingRemote = true;
+  state.vimeoReady = false;
 
   try { els.nativeVideo.pause(); } catch (e) { /* ignore */ }
   try { els.nativeVideo.removeAttribute('src'); } catch (e) { /* ignore */ }
@@ -335,6 +361,7 @@ function resetPlayers(keepVisible = false) {
     try { state.ytPlayer.destroy(); } catch (e) { /* ignore */ }
   }
   state.ytPlayer = null;
+  state.ytPlayerReady = false;
   els.ytHost.innerHTML = '';
 
   try { els.embedFrame.src = 'about:blank'; } catch (e) { /* ignore */ }
@@ -388,6 +415,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
            style="width:100%;height:100%;"></div>
     `;
 
+    state.ytPlayerReady = false;
     state.ytPlayer = new YT.Player('ytPlayer', {
       videoId,
       playerVars: {
@@ -400,6 +428,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
       events: {
         onReady: (event) => {
           console.log('[YouTube] Плеер готов');
+          state.ytPlayerReady = true;
           hideLoading();
           if (autoplay) {
             try { event.target.playVideo(); } catch (e) { /* ignore */ }
@@ -422,11 +451,51 @@ function loadYouTubeVideo(videoId, autoplay = true) {
           setStatus('⚠️ Ошибка YouTube-плеера (код ' + event.data + ')');
           showSnack('❌ Не удалось воспроизвести YouTube-видео');
           hideLoading();
+          // Сбрасываем currentUrl, чтобы не оставаться в состоянии «URL есть, плеер сломан»
+          state.currentUrl = '';
         },
       },
     });
   } else {
     state.ytPlayer.loadVideoById(videoId, 0, autoplay ? 'large' : 'default');
+  }
+}
+
+function handleVimeoPostMessage(event) {
+  if (!event.origin.includes('vimeo.com')) return;
+  const data = typeof event.data === 'object' && event.data ? event.data : null;
+  if (!data || typeof data.event !== 'string') return;
+
+  switch (data.event) {
+    case 'ready':
+      state.vimeoReady = true;
+      hideLoading();
+      setStatus('🎬 Vimeo плеер готов');
+      break;
+    case 'play':
+      if (state.applyingRemote) return;
+      emitIfNeeded('PLAY', {
+        mediaType: SOURCE_TYPES.VIMEO,
+        url: state.currentUrl,
+        time: Number(data.seconds || 0),
+      });
+      break;
+    case 'pause':
+      if (state.applyingRemote) return;
+      emitIfNeeded('PAUSE', {
+        mediaType: SOURCE_TYPES.VIMEO,
+        url: state.currentUrl,
+        time: Number(data.seconds || 0),
+      });
+      break;
+    case 'seeked':
+      if (state.applyingRemote) return;
+      emitIfNeeded('SEEK', {
+        mediaType: SOURCE_TYPES.VIMEO,
+        url: state.currentUrl,
+        time: Number(data.seconds || 0),
+      });
+      break;
   }
 }
 
@@ -522,6 +591,8 @@ function loadNativeOrHls(url, autoplay = true) {
               window.hlsInstance.recoverMediaError();
               break;
             default:
+              // Неустранимая ошибка — сбрасываем currentUrl
+              state.currentUrl = '';
               break;
           }
         }
@@ -558,8 +629,19 @@ function loadNativeOrHls(url, autoplay = true) {
 function loadIframe(embedUrl) {
   showOnlyShell('iframe');
   els.embedFrame.src = embedUrl;
-  setTimeout(hideLoading, 1500);
-  setStatus('🖥 Встроенный плеер');
+  state.vimeoReady = false;
+  setTimeout(() => {
+    hideLoading();
+    setStatus('🖥 Встроенный плеер — синхронизация ограничена');
+  }, 1500);
+}
+
+function loadVimeoVideo(videoId, autoplay = true) {
+  showOnlyShell('iframe');
+  state.vimeoReady = false;
+  const url = `https://player.vimeo.com/video/${encodeURIComponent(videoId)}?api=1&player_id=vimeo_player&autoplay=${autoplay ? 1 : 0}&transparent=0&dnt=1`;
+  els.embedFrame.src = url;
+  setStatus('⏳ Vimeo загружается…');
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -580,7 +662,7 @@ function loadMedia(rawUrl, opts = {}) {
     return false;
   }
 
-  state.currentUrl = rawUrl.trim();
+  const trimmedUrl = rawUrl.trim();
   state.currentType = parsed.type;
 
   resetPlayers(true);
@@ -589,6 +671,10 @@ function loadMedia(rawUrl, opts = {}) {
   switch (parsed.type) {
     case SOURCE_TYPES.YOUTUBE:
       loadYouTubeVideo(parsed.payload.videoId, autoplay);
+      break;
+
+    case SOURCE_TYPES.VIMEO:
+      loadVimeoVideo(parsed.payload.videoId, autoplay);
       break;
 
     case SOURCE_TYPES.HLS:
@@ -605,6 +691,10 @@ function loadMedia(rawUrl, opts = {}) {
       hideLoading();
       return false;
   }
+
+  // Устанавливаем currentUrl только после успешного запуска загрузки.
+  // Если плеер сообщит об ошибке — currentUrl будет сброшен в обработчике ошибок.
+  state.currentUrl = trimmedUrl;
 
   // Обновляем "Сейчас играет"
   els.nowPlayingTitle.textContent = formatTitle(state.currentUrl);
@@ -662,6 +752,8 @@ function connectSocket() {
     console.log('[Socket] Подключено →', socketUrl, '| room:', state.roomId);
     setStatus('🟢 Подключено к комнате');
     showSnack('🟢 Подключено к комнате');
+    startClockSync();
+    flushPendingSocketEvents();
   });
 
   s.on('disconnect', (reason) => {
@@ -669,6 +761,11 @@ function connectSocket() {
     updateConnUI(false);
     console.warn('[Socket] Отключено:', reason);
     setStatus('🔴 Нет соединения с сервером');
+    stopClockSync();
+  });
+
+  s.on('PONG', (data) => {
+    handlePong(data);
   });
 
   s.on('connect_error', (err) => {
@@ -679,38 +776,77 @@ function connectSocket() {
   s.on('hello', (data) => {
     console.log('[Socket] hello →', data);
     state.isHost = !!data.isHost;
+    if (typeof data.viewers === 'number') {
+      state.viewers = data.viewers;
+      updatePeersCount();
+    }
     updateHostUI();
+    flushPendingSocketEvents();
   });
 
-  // ── Полное состояние комнаты (как в Rave) ─────────────────
-  s.on('ROOM_STATE', (data) => {
-    console.log('[Socket] ROOM_STATE ←', data);
+  // ── Инициализация комнаты для нового участника ────────────
+  // Сервер отправляет init-room-state при подключении:
+  // текущий URL, таймкод и статус воспроизведения.
+  // Автоматически инициализируем плеер, перематываем и запускаем,
+  // если хост уже смотрит видео.
+  const applyRoomState = (data) => {
+    console.log('[Socket] room-state ←', data);
 
-    if (data.currentUrl && data.currentUrl !== state.currentUrl) {
-      loadMedia(data.currentUrl, {
-        emit: false,
-        autoplay: data.isPlaying,
-        incoming: true,
-      });
+    const roomUrl = data.currentUrl;
+    const roomTime = typeof data.currentTime === 'number'
+      ? data.currentTime
+      : (typeof data.position === 'number' ? data.position : 0);
+    const roomPlaying = !!data.isPlaying;
 
-      // Применяем позицию после загрузки
-      if (typeof data.position === 'number' && data.position > 0) {
-        setTimeout(() => {
-          handleRemoteSeek({
-            mediaType: data.currentType || state.currentType,
-            url: data.currentUrl,
-            time: data.position,
-          });
-        }, 700);
+    // Применяем currentType до инициализации плеера
+    if (data.currentType) {
+      state.currentType = data.currentType;
+    } else if (roomUrl) {
+      const parsed = parseUrl(roomUrl);
+      if (parsed.type !== SOURCE_TYPES.UNKNOWN) {
+        state.currentType = parsed.type;
       }
     }
 
-    // Очередь
+    updateDiagnostic({
+      roomState: 'получено',
+      url: roomUrl || '—',
+      type: state.currentType,
+    });
+
+    if (typeof data.viewers === 'number') {
+      state.viewers = data.viewers;
+      updatePeersCount();
+      renderDrawerPeers();
+    }
+
+    if (roomUrl) {
+      // Загружаем медиа, перематываем на нужную секунду и запускаем,
+      // если хост уже воспроизводит видео.
+      // handleRemoteMedia сам дождётся готовности плеера.
+      handleRemoteMedia({
+        mediaType: state.currentType,
+        url: roomUrl,
+        time: roomTime,
+        autoplay: roomPlaying,
+        serverTime: data.serverTime,
+      });
+    } else if (state.currentUrl) {
+      // В комнате нет медиа — сбрасываем плеер
+      resetPlayers();
+    }
+
     if (Array.isArray(data.queue)) {
       state.queue = data.queue;
       renderQueue();
     }
-  });
+  };
+
+  // Основной канал: приходит от сервера сразу после hello
+  s.on('init-room-state', applyRoomState);
+
+  // Фолбэк: если сервер/старый клиент ещё шлёт ROOM_STATE
+  s.on('ROOM_STATE', applyRoomState);
 
   // ── Смена хоста ────────────────────────────────────────────
   s.on('HOST_CHANGED', ({ hostId }) => {
@@ -731,29 +867,6 @@ function connectSocket() {
   s.on('ERROR', ({ message }) => {
     console.warn('[Socket] ERROR ←', message);
     showSnack('⚠️ ' + message);
-  });
-
-  // ── Запрос состояния от нового участника ─────────────────
-  s.on('request_state', ({ from }) => {
-    console.log('[Socket] Запрос состояния от', from);
-
-    if (state.currentUrl && state.currentType !== SOURCE_TYPES.UNKNOWN) {
-      const time = getCurrentPlayhead();
-      s.emit('CHANGE_MEDIA', {
-        mediaType: state.currentType,
-        url: state.currentUrl,
-        time,
-        autoplay: true,
-        forPeer: from,
-      });
-      setTimeout(() => {
-        s.emit('SEEK', {
-          mediaType: state.currentType,
-          url: state.currentUrl,
-          time,
-        });
-      }, 300);
-    }
   });
 
   // ── Ивенты синхронизации ─────────────────────────────────
@@ -777,9 +890,12 @@ function connectSocket() {
     handleRemoteMedia(data);
   });
 
-  s.on('USER_LEFT', ({ id }) => {
-    console.log('[Sync] USER_LEFT ←', id);
+  s.on('USER_LEFT', ({ id, viewers }) => {
+    console.log('[Sync] USER_LEFT ←', id, '| viewers:', viewers);
     state.peers = state.peers.filter((p) => p.id !== id);
+    if (typeof viewers === 'number') {
+      state.viewers = viewers;
+    }
     updatePeersCount();
     renderDrawerPeers();
     showSnack('👋 Участник покинул комнату');
@@ -787,7 +903,12 @@ function connectSocket() {
 
   s.on('USER_JOINED', ({ id, isHost, viewers }) => {
     console.log('[Sync] USER_JOINED ←', id, '| viewers:', viewers);
-    showSnack('👤 Новый участник в комнате');
+    if (typeof viewers === 'number') {
+      state.viewers = viewers;
+      updatePeersCount();
+      renderDrawerPeers();
+    }
+    showSnack('👤 Новый участник в комнате (' + (viewers || state.viewers) + ' 👥)');
   });
 
   s.on('PEERS', ({ peers, count }) => {
@@ -825,15 +946,86 @@ function emitIfNeeded(eventName, payload) {
   // Только хост может управлять видео (как в Rave)
   if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA'].includes(eventName)) {
     console.warn('[Emit] Гость не может управлять видео:', eventName);
+    showSnack('⚠️ Только хост может управлять видео');
     return;
   }
+  if (!state.socket || !state.connected || state.isHost === null) {
+    console.warn('[Emit] Сохранено до готовности:', eventName);
+    state.pendingSocketEvents.push({ eventName, payload: { ...payload, sender: state.userName || state.socket?.id } });
+    showSnack('⌛ Жду соединения и роль хоста, скоро синхронизирую');
+    return;
+  }
+
+  if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA'].includes(eventName)) {
+    console.warn('[Emit] Гость не может управлять видео:', eventName);
+    showSnack('⚠️ Только хост может управлять видео');
+    return;
+  }
+
   state.socket.emit(eventName, {
     ...payload,
     sender: state.userName || state.socket.id,
   });
 }
 
-/* ═══════════════════════════════════════════════════════════
+function flushPendingSocketEvents() {
+  if (!state.socket || !state.connected || state.pendingSocketEvents.length === 0) return;
+  if (state.isHost === null) return;
+
+  const preserved = [];
+  while (state.pendingSocketEvents.length > 0) {
+    const { eventName, payload } = state.pendingSocketEvents.shift();
+    if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA'].includes(eventName)) {
+      preserved.push({ eventName, payload });
+      continue;
+    }
+    console.log('[Emit] Выполняем отложенное событие:', eventName, payload);
+    state.socket.emit(eventName, payload);
+  }
+  state.pendingSocketEvents = preserved.concat(state.pendingSocketEvents);
+}
+
+function sendPing() {
+  if (!state.socket || !state.connected) return;
+  state.socket.emit('PING', { clientTime: Date.now() });
+}
+
+function startClockSync() {
+  stopClockSync();
+  sendPing();
+  state.clockSyncInterval = setInterval(sendPing, 15000);
+}
+
+function stopClockSync() {
+  if (state.clockSyncInterval) {
+    clearInterval(state.clockSyncInterval);
+    state.clockSyncInterval = null;
+  }
+}
+
+function handlePong(data) {
+  const now = Date.now();
+  const clientTime = Number(data?.clientTime || now);
+  const rtt = now - clientTime;
+  const serverTime = Number(data?.serverTime || now);
+  const offset = serverTime - (clientTime + rtt / 2);
+  state.serverTimeOffsetMs = offset;
+  state.serverPingMs = rtt;
+  console.log('[Sync] PONG offset=', offset, 'rtt=', rtt);
+}
+
+function getServerNowMs() {
+  return Date.now() + state.serverTimeOffsetMs;
+}
+
+function getAdjustedRemoteTime(data) {
+  const baseTime = typeof data.time === 'number' ? data.time : 0;
+  if (typeof data.serverTime !== 'number') return baseTime;
+  const elapsed = (getServerNowMs() - data.serverTime) / 1000;
+  return Math.max(0, baseTime + elapsed);
+}
+
+/* ═══════════════════════════════════════════════════
    10. ОБРАБОТЧИКИ REMOTE-КОМАНД
    ═══════════════════════════════════════════════════════════ */
 
@@ -850,6 +1042,7 @@ function withRemoteFlag(fn) {
 
 function handleRemotePlay(data) {
   const type = data.mediaType || state.currentType;
+  const targetTime = getAdjustedRemoteTime(data);
 
   if (data.url && data.url !== state.currentUrl) {
     handleRemoteMedia({ ...data, autoplay: false });
@@ -860,15 +1053,15 @@ function handleRemotePlay(data) {
       case SOURCE_TYPES.YOUTUBE:
         if (state.ytPlayer && typeof state.ytPlayer.playVideo === 'function') {
           try { state.ytPlayer.playVideo(); } catch (e) { /* ignore */ }
-          if (typeof data.time === 'number' && data.time > 0) {
-            syncYouTubeTime(data.time);
+          if (targetTime > 0) {
+            syncYouTubeTime(targetTime);
           }
         }
         break;
 
       case SOURCE_TYPES.NATIVE:
       case SOURCE_TYPES.HLS: {
-        const desired = data.time || 0;
+        const desired = targetTime || 0;
         const current = els.nativeVideo.currentTime || 0;
 
         // Если видео ещё не загружено — запомним время до loadedmetadata
@@ -884,8 +1077,19 @@ function handleRemotePlay(data) {
         break;
       }
 
+      case SOURCE_TYPES.VIMEO: {
+        const iframe = els.embedFrame;
+        const win = iframe.contentWindow;
+        if (win) {
+          if (targetTime > 0) {
+            win.postMessage({ method: 'setCurrentTime', value: targetTime }, '*');
+          }
+          win.postMessage({ method: 'play' }, '*');
+        }
+        break;
+      }
       case SOURCE_TYPES.IFRAME:
-        console.warn('[Sync] PLAY для iframe — синхронизация времени невозможна');
+        console.warn('[Sync] PLAY для iframe — синхронизация времени невозможна, пропускаем');
         break;
     }
   });
@@ -912,8 +1116,16 @@ function handleRemotePause(data) {
         els.nativeVideo.pause();
         break;
 
+      case SOURCE_TYPES.VIMEO: {
+        const iframe = els.embedFrame;
+        const win = iframe.contentWindow;
+        if (win) {
+          win.postMessage({ method: 'pause' }, '*');
+        }
+        break;
+      }
       case SOURCE_TYPES.IFRAME:
-        console.warn('[Sync] PAUSE для iframe — невозможно');
+        console.warn('[Sync] PAUSE для iframe — синхронизация невозможна, пропускаем');
         break;
     }
   });
@@ -922,7 +1134,7 @@ function handleRemotePause(data) {
 
 function handleRemoteSeek(data) {
   const type = data.mediaType || state.currentType;
-  const seekTo = typeof data.time === 'number' ? data.time : 0;
+  const seekTo = getAdjustedRemoteTime(data);
 
   if (data.url && data.url !== state.currentUrl) {
     handleRemoteMedia({ ...data, autoplay: false });
@@ -949,8 +1161,16 @@ function handleRemoteSeek(data) {
         break;
       }
 
+      case SOURCE_TYPES.VIMEO: {
+        const iframe = els.embedFrame;
+        const win = iframe.contentWindow;
+        if (win) {
+          win.postMessage({ method: 'setCurrentTime', value: seekTo }, '*');
+        }
+        break;
+      }
       case SOURCE_TYPES.IFRAME:
-        console.warn('[Sync] SEEK для iframe — невозможно');
+        console.warn('[Sync] SEEK для iframe — синхронизация невозможна, пропускаем');
         break;
     }
   });
@@ -958,11 +1178,66 @@ function handleRemoteSeek(data) {
 }
 
 function handleRemoteMedia(data) {
-  const { url, mediaType, time, autoplay = true } = data;
+  const { url, mediaType, autoplay = true } = data;
+  const time = getAdjustedRemoteTime(data);
 
-  if (!url || url === state.currentUrl) {
-    if (typeof time === 'number' && time > 0) {
-      handleRemoteSeek({ ...data, mediaType: mediaType || state.currentType, time });
+  if (!url) return;
+
+  const type = mediaType || state.currentType;
+  const sameUrl = url === state.currentUrl;
+
+  const scheduleRemoteSync = () => {
+    let attempts = 0;
+    const maxAttempts = 10;
+    const retryInterval = setInterval(() => {
+      attempts++;
+      const ready = isPlayerReady(type);
+
+      if (ready) {
+        clearInterval(retryInterval);
+
+        if (type === SOURCE_TYPES.IFRAME) {
+          console.warn('[Sync] IFRAME не синхронизируется (play/pause/seek недоступны)');
+          return;
+        }
+
+        // time уже скорректирован getAdjustedRemoteTime —
+        // убираем serverTime, чтобы время не прибавлялось второй раз.
+        const syncData = { ...data, mediaType: type, serverTime: undefined };
+        if (typeof time === 'number' && time > 0) {
+          handleRemoteSeek({ ...syncData, time });
+        }
+        if (autoplay) {
+          handleRemotePlay({ ...syncData, time });
+        }
+      } else if (attempts >= maxAttempts) {
+        clearInterval(retryInterval);
+        console.warn('[Sync] Плеер не стал готов за ' + maxAttempts + ' попыток');
+      }
+    }, 500);
+  };
+
+  // Если URL тот же, но плеер ещё не готов — перезагружаем медиа и ставим синхронизацию на готовность
+  if (sameUrl && !isPlayerReady(type)) {
+    console.log('[Sync] Тот же URL, но плеер не готов — повторно загружаем медиа', type, url);
+    loadMedia(url, {
+      emit: false,
+      autoplay: autoplay,
+      incoming: true,
+    });
+    scheduleRemoteSync();
+    return;
+  }
+
+  if (sameUrl && isPlayerReady(type)) {
+    // time уже скорректирован getAdjustedRemoteTime —
+    // убираем serverTime, чтобы время не прибавлялось второй раз.
+    const syncData = { ...data, mediaType: type, serverTime: undefined };
+    if (time > 0) {
+      handleRemoteSeek({ ...syncData, time });
+    }
+    if (autoplay) {
+      handleRemotePlay({ ...syncData, time });
     }
     return;
   }
@@ -975,30 +1250,7 @@ function handleRemoteMedia(data) {
     incoming: true,
   });
 
-  // Повторяем попытки запуска, пока плеер не будет готов.
-  // Это решает проблему, когда CHANGE_MEDIA приходит раньше,
-  // чем плеер успел инициализироваться (особенно YouTube).
-  let attempts = 0;
-  const maxAttempts = 10;
-  const retryInterval = setInterval(() => {
-    attempts++;
-    const ready = isPlayerReady(mediaType || state.currentType);
-
-    if (ready) {
-      clearInterval(retryInterval);
-      // Всегда применяем seek, если время > 0
-      if (typeof time === 'number' && time > 0) {
-        handleRemoteSeek({ ...data, mediaType: mediaType || state.currentType, time });
-      }
-      // Всегда запускаем, если autoplay (даже при time === 0)
-      if (autoplay) {
-        handleRemotePlay({ ...data, mediaType: mediaType || state.currentType, time });
-      }
-    } else if (attempts >= maxAttempts) {
-      clearInterval(retryInterval);
-      console.warn('[Sync] Плеер не стал готов за ' + maxAttempts + ' попыток');
-    }
-  }, 500);
+  scheduleRemoteSync();
 }
 
 /**
@@ -1007,7 +1259,7 @@ function handleRemoteMedia(data) {
 function isPlayerReady(type) {
   switch (type) {
     case SOURCE_TYPES.YOUTUBE:
-      return !!(state.ytPlayer && typeof state.ytPlayer.playVideo === 'function');
+      return !!(state.ytPlayer && state.ytPlayerReady && typeof state.ytPlayer.playVideo === 'function');
     case SOURCE_TYPES.NATIVE:
     case SOURCE_TYPES.HLS:
       return els.nativeVideo.readyState >= 1;
@@ -1129,6 +1381,8 @@ function bindNativeVideoEvents() {
     setStatus('⚠️ Ошибка воспроизведения видео');
     showSnack('❌ Не удалось воспроизвести видео');
     hideLoading();
+    // Сбрасываем currentUrl, чтобы не оставаться в состоянии «URL есть, плеер сломан»
+    state.currentUrl = '';
   });
 }
 
@@ -1139,6 +1393,13 @@ function bindNativeVideoEvents() {
 // Статус теперь выводится в snackbar, т.к. нижней панели нет
 function setStatus(text) {
   console.log('[Status]', text);
+  if (els.diagStatus) els.diagStatus.textContent = text;
+}
+
+function updateDiagnostic(data) {
+  if (els.diagRoomState) els.diagRoomState.textContent = data.roomState || '—';
+  if (els.diagUrl) els.diagUrl.textContent = data.url || '—';
+  if (els.diagType) els.diagType.textContent = data.type || '—';
 }
 
 function updateConnUI(connected) {
@@ -1185,7 +1446,7 @@ function handleAutoplayBlocked(sourceName) {
 
 function updatePeersCount() {
   if (els.peersCount) {
-    els.peersCount.textContent = state.peers.length + 1;
+    els.peersCount.textContent = Math.max(1, state.viewers);
   }
 }
 
@@ -1286,6 +1547,11 @@ function formatTime(ts) {
 }
 
 function sendChatMessage() {
+  if (!state.socket || !state.connected) {
+    showSnack('⚠️ Нет соединения с сервером');
+    return;
+  }
+
   const text = els.chatInput.value.trim();
   if (!text) return;
 

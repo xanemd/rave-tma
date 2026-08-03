@@ -299,6 +299,38 @@ input {
   opacity: 0.9;
 }
 
+.diagnostic-panel {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 30px;
+  padding: 10px 12px;
+  background: rgba(0,0,0,0.55);
+  backdrop-filter: blur(12px);
+  border-top: 1px solid rgba(255,255,255,0.08);
+  font-size: 11px;
+  color: var(--tg-text);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px 10px;
+  z-index: 5;
+}
+
+.diagnostic-row {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  overflow: hidden;
+}
+
+.diagnostic-row span:last-child {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: #d6d6d6;
+}
+
 /* ── Чат (низ) ────────────────────────────────────────────── */
 .chat-section {
   flex: 1;

@@ -89,7 +89,7 @@ function getRoom(roomId) {
  */
 function getCurrentPosition(room) {
   if (room.isPlaying && room.startedAt > 0) {
-    return room.position + (Date.now() - room.startedAt) / 1000;
+    return Math.max(0, room.position + (Date.now() - room.startedAt) / 1000);
   }
   return room.position;
 }
@@ -104,8 +104,10 @@ function getRoomState(room) {
     currentType: room.currentType,
     isPlaying: room.isPlaying,
     position: getCurrentPosition(room),
+    startedAt: room.startedAt,
     queue: room.queue,
     viewers: room.viewers,
+    serverTime: Date.now(),
   };
 }
 
@@ -132,11 +134,22 @@ io.on('connection', (socket) => {
     roomId,
     socketId: socket.id,
     isHost,
+    viewers: room.viewers,
     message: 'Подключено к комнате синхронизации'
   });
 
-  // Отдаём новичку полное состояние (как в Rave)
-  socket.emit('ROOM_STATE', getRoomState(room));
+  // Отдаём новичку полное состояние комнаты
+  // (init-room-state — надёжный способ инициализации плеера у нового участника)
+  socket.emit('init-room-state', {
+    currentUrl: room.currentUrl,
+    currentType: room.currentType,
+    currentTime: getCurrentPosition(room),
+    isPlaying: room.isPlaying,
+    startedAt: room.startedAt,
+    serverTime: Date.now(),
+    queue: room.queue,
+    viewers: room.viewers,
+  });
 
   // Отдаём историю чата
   if (room.messages.length > 0) {
@@ -210,11 +223,19 @@ io.on('connection', (socket) => {
     }
 
     console.log(`⏩ SEEK   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-    socket.to(roomId).emit('SEEK', {
+    const seekTarget = typeof payload.forPeer === 'string' && payload.forPeer
+      ? payload.forPeer
+      : null;
+    const seekEvent = {
       ...payload,
       time: pos,
       serverTime: Date.now(),
-    });
+    };
+    if (seekTarget) {
+      io.to(seekTarget).emit('SEEK', seekEvent);
+    } else {
+      socket.to(roomId).emit('SEEK', seekEvent);
+    }
   });
 
   socket.on('CHANGE_MEDIA', (data) => {
@@ -236,13 +257,21 @@ io.on('connection', (socket) => {
     room.startedAt = Date.now();
 
     console.log(`🎬 MEDIA  | ${socket.id} | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
-    socket.to(roomId).emit('CHANGE_MEDIA', {
+    const mediaTarget = typeof payload.forPeer === 'string' && payload.forPeer
+      ? payload.forPeer
+      : null;
+    const mediaEvent = {
       ...payload,
       url,
       mediaType: type,
       time: 0,
       serverTime: Date.now(),
-    });
+    };
+    if (mediaTarget) {
+      io.to(mediaTarget).emit('CHANGE_MEDIA', mediaEvent);
+    } else {
+      socket.to(roomId).emit('CHANGE_MEDIA', mediaEvent);
+    }
   });
 
   // ── Очередь видео ──────────────────────────────────────────
@@ -314,6 +343,13 @@ io.on('connection', (socket) => {
     socket.emit('PEERS', { peers, count: peers.length, hostId: room.hostId });
   });
 
+  socket.on('PING', (data) => {
+    socket.emit('PONG', {
+      clientTime: data?.clientTime || Date.now(),
+      serverTime: Date.now(),
+    });
+  });
+
   // ── Отключение ──────────────────────────────────────────────
   socket.on('disconnect', (reason) => {
     room.viewers = Math.max(0, room.viewers - 1);
@@ -334,14 +370,14 @@ io.on('connection', (socket) => {
         io.to(roomId).emit('HOST_CHANGED', { hostId: room.hostId });
       } else {
         room.hostId = null;
-        // Комната пуста — сбрасываем состояние
-        room.currentUrl = '';
-        room.currentType = null;
-        room.isPlaying = false;
-        room.position = 0;
-        room.startedAt = 0;
-        room.queue = [];
       }
+    }
+
+    // Если комната пуста — удаляем её, чтобы память не росла бесконечно
+    const remainingAfter = [...io.sockets.adapter.rooms.get(roomId) || []];
+    if (remainingAfter.length === 0) {
+      rooms.delete(roomId);
+      console.log(`[🗑] Комната "${roomId}" удалена (пуста)`);
     }
   });
 
@@ -356,9 +392,10 @@ io.on('connection', (socket) => {
 
 function normalizePayload(data) {
   if (!data || typeof data !== 'object') return { time: Date.now() };
+  const time = typeof data.time === 'number' ? data.time : Date.now();
   return {
     ...data,
-    time: Date.now(),
+    time,
   };
 }
 
