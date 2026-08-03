@@ -846,7 +846,6 @@ function connectSocket() {
           url: roomUrl,
           time: roomTime,
           autoplay: roomPlaying,
-          serverTime: data.serverTime,
         });
       } else if (state.currentUrl === roomUrl) {
         // URL тот же — только обновляем позицию/статус без перезагрузки
@@ -855,14 +854,12 @@ function connectSocket() {
             mediaType: state.currentType,
             url: roomUrl,
             time: roomTime,
-            serverTime: data.serverTime,
           });
         } else {
           handleRemotePause({
             mediaType: state.currentType,
             url: roomUrl,
             time: roomTime,
-            serverTime: data.serverTime,
           });
         }
       }
