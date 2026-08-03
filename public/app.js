@@ -407,14 +407,40 @@ window.onYouTubeIframeAPIReady = function () {
   }
 };
 
+// Увеличиваем таймаут до 15 секунд и добавляем повторные попытки
+let ytApiAttempts = 0;
+const YT_API_MAX_ATTEMPTS = 3;
+
+function tryLoadYouTubeApi() {
+  if (state.ytReady) return;
+  
+  ytApiAttempts++;
+  console.log(`[YouTube] Попытка загрузки API #${ytApiAttempts}`);
+  
+  // Если API уже загрузилось между попытками
+  if (state.ytReady) {
+    hideLoading();
+    return;
+  }
+  
+  if (ytApiAttempts >= YT_API_MAX_ATTEMPTS) {
+    console.error('[YouTube] API не загрузился за 15 секунд');
+    setStatus('⚠️ YouTube API не загрузился. Проверьте соединение.');
+    showSnack('❌ YouTube API не загрузился. Попробуйте обновить страницу.');
+    hideLoading();
+    return;
+  }
+  
+  // Повторная попытка через 5 секунд
+  setTimeout(tryLoadYouTubeApi, 5000);
+}
+
+// Первая проверка через 15 секунд
 setTimeout(() => {
   if (!state.ytReady) {
-    console.error('[YouTube] API не загрузился за 10 секунд');
-    setStatus('⚠️ YouTube API не загрузился. Проверьте соединение.');
-    showSnack('❌ Не удалось загрузить YouTube API');
-    hideLoading();
+    tryLoadYouTubeApi();
   }
-}, 10000);
+}, 15000);
 
 function loadYouTubeVideo(videoId, autoplay = true) {
   const host = els.ytHost;
