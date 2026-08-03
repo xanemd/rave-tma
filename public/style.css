@@ -369,11 +369,11 @@ input {
 }
 
 .msg {
-  max-width: 88%;
-  padding: 8px 14px;
-  border-radius: 16px;
-  font-size: 15px;
-  line-height: 1.4;
+  max-width: 75%;
+  padding: 6px 10px;
+  border-radius: 12px;
+  font-size: 14px;
+  line-height: 1.25;
   word-wrap: break-word;
   white-space: pre-wrap;
 }
@@ -394,10 +394,10 @@ input {
 .msg-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  opacity: 0.6;
-  margin-bottom: 2px;
+  gap: 4px;
+  font-size: 9px;
+  opacity: 0.5;
+  margin-bottom: 1px;
 }
 
 .msg.mine .msg-meta {
