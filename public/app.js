@@ -100,6 +100,9 @@ const els = {
   loadBtn: $('#loadBtn'),
   presetRow: $('#presetRow'),
   quickList: $('#quickList'),
+  joinCodeInput: $('#joinCodeInput'),
+  joinCodeBtn: $('#joinCodeBtn'),
+  myRoomCode: $('#myRoomCode'),
 
   // Индикатор загрузки
   loadingOverlay: $('#loadingOverlay'),
@@ -904,13 +907,44 @@ function handleRemoteMedia(data) {
     incoming: true,
   });
 
-  if (typeof time === 'number' && time > 0) {
-    setTimeout(() => {
-      handleRemoteSeek({ ...data, mediaType: mediaType || state.currentType, time });
-      if (autoplay) {
-        handleRemotePlay({ ...data, mediaType: mediaType || state.currentType, time });
+  // Повторяем попытки запуска, пока плеер не будет готов.
+  // Это решает проблему, когда CHANGE_MEDIA приходит раньше,
+  // чем плеер успел инициализироваться (особенно YouTube).
+  let attempts = 0;
+  const maxAttempts = 10;
+  const retryInterval = setInterval(() => {
+    attempts++;
+    const ready = isPlayerReady(mediaType || state.currentType);
+
+    if (ready) {
+      clearInterval(retryInterval);
+      if (typeof time === 'number' && time > 0) {
+        handleRemoteSeek({ ...data, mediaType: mediaType || state.currentType, time });
+        if (autoplay) {
+          handleRemotePlay({ ...data, mediaType: mediaType || state.currentType, time });
+        }
       }
-    }, 700);
+    } else if (attempts >= maxAttempts) {
+      clearInterval(retryInterval);
+      console.warn('[Sync] Плеер не стал готов за ' + maxAttempts + ' попыток');
+    }
+  }, 500);
+}
+
+/**
+ * Проверяет, готов ли плеер для данного типа медиа.
+ */
+function isPlayerReady(type) {
+  switch (type) {
+    case SOURCE_TYPES.YOUTUBE:
+      return !!(state.ytPlayer && typeof state.ytPlayer.playVideo === 'function');
+    case SOURCE_TYPES.NATIVE:
+    case SOURCE_TYPES.HLS:
+      return els.nativeVideo.readyState >= 1;
+    case SOURCE_TYPES.IFRAME:
+      return true; // iframe не требует готовности
+    default:
+      return false;
   }
 }
 
@@ -1232,11 +1266,55 @@ function escapeHtml(str) {
    18. ОБРАБОТКА UI-СОБЫТИЙ
    ═══════════════════════════════════════════════════════════ */
 
+function joinRoomByCode() {
+  const code = els.joinCodeInput.value.trim();
+  if (!code) {
+    showSnack('🔑 Введите код комнаты');
+    return;
+  }
+
+  // Разрешаем ввод как с префиксом r_, так и без него
+  let roomId = code;
+  if (!roomId.startsWith('r_')) {
+    roomId = 'r_' + roomId;
+  }
+
+  if (!/^[a-zA-Z0-9_-]{1,64}$/.test(roomId)) {
+    showSnack('❌ Некорректный код комнаты');
+    return;
+  }
+
+  // Переключаем комнату: переподключаемся с новым room_id
+  state.roomId = roomId;
+  els.roomBadge.textContent = state.roomId;
+  els.roomBadge.title = 'Комната: ' + state.roomId;
+  els.myRoomCode.textContent = state.roomId;
+
+  // Переподключаемся к серверу с новой комнатой
+  if (state.socket) {
+    state.socket.disconnect();
+    state.socket = null;
+  }
+  connectSocket();
+
+  showSnack('🔑 Подключено к комнате: ' + roomId);
+  closeDrawer();
+}
+
 function bindUI() {
   // Открыть панель смены видео
   els.changeMediaBtn.addEventListener('click', openDrawer);
   els.drawerCloseBtn.addEventListener('click', closeDrawer);
   els.drawerOverlay.addEventListener('click', closeDrawer);
+
+  // Подключение по коду
+  els.joinCodeBtn.addEventListener('click', joinRoomByCode);
+  els.joinCodeInput.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      joinRoomByCode();
+    }
+  });
 
   // Кнопка «Включить»
   els.loadBtn.addEventListener('click', () => {
@@ -1305,6 +1383,7 @@ function bindUI() {
   // Отображаем комнату в бейдже
   els.roomBadge.textContent = state.roomId;
   els.roomBadge.title = 'Комната: ' + state.roomId;
+  if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
 
   // Привязка UI
   bindUI();

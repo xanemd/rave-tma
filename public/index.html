@@ -172,6 +172,22 @@
         </button>
       </div>
 
+      <!-- Подключение по коду комнаты -->
+      <div class="drawer-divider">Подключиться по коду</div>
+      <div class="join-row">
+        <input
+          type="text"
+          id="joinCodeInput"
+          class="url-input"
+          placeholder="Введите код комнаты (r_...)"
+          autocomplete="off"
+          autocapitalize="none"
+          spellcheck="false"
+        >
+        <button class="btn btn-primary" id="joinCodeBtn" type="button">Войти</button>
+      </div>
+      <div class="join-hint" id="joinHint">Ваш код: <b id="myRoomCode">—</b></div>
+
       <!-- Недавние / пресет-плейлист -->
       <div class="drawer-divider">Быстрый выбор</div>
       <div class="quick-list" id="quickList">
