@@ -371,7 +371,7 @@ input {
 .msg {
   display: block;
   max-width: 85%;
-  padding: 4px 10px;
+  padding: 3px 10px;
   border-radius: 12px;
   font-size: 13px;
   line-height: 1.2;
@@ -393,17 +393,15 @@ input {
 }
 
 .msg-meta {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  display: inline;
   font-size: 8px;
   opacity: 0.5;
-  margin-bottom: 0;
   line-height: 1;
 }
 
 .msg.mine .msg-meta {
-  justify-content: flex-end;
+  float: right;
+  margin-left: 6px;
 }
 
 .msg-sender {
