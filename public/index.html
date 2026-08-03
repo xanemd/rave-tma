@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+
+  <!-- Telegram WebApp SDK -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+  <!-- YouTube IFrame API (для YouTube-плеера) -->
+  <script src="https://www.youtube.com/iframe_api"></script>
+
+  <!-- HLS.js — для воспроизведения потоков .m3u8 -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+  <!-- Socket.io клиент (подаётся сервером Express по умолчанию) -->
+  <script src="/socket.io/socket.io.js"></script>
+
+  <!-- Служебные мета-теги для Telegram -->
+  <meta name="format-detection" content="telephone=no">
+  <meta name="theme-color" content="#17212b">
+
+  <title>Rave — Смотрим вместе</title>
+
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <!-- ════════════════════════════════════════════════════════
+       ВЕРХНЯЯ ПАНЕЛЬ
+       ════════════════════════════════════════════════════════ -->
+  <header class="app-header" id="appHeader">
+    <div class="header-row">
+      <div class="logo">
+        <span class="logo-icon">▶</span>
+        <span class="logo-text">Rave</span>
+        <span class="room-badge" id="roomBadge" title="Комната">main_room</span>
+      </div>
+
+      <!-- Индикатор подключения -->
+      <div class="conn-status" id="connStatus">
+        <span class="conn-dot" id="connDot"></span>
+        <span id="connText">Подключение…</span>
+      </div>
+    </div>
+
+    <!-- Поле ввода URL + кнопка запуска -->
+    <div class="url-row">
+      <input
+        type="text"
+        id="urlInput"
+        class="url-input"
+        placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8, VK Video…"
+        autocomplete="off"
+        autocapitalize="none"
+        spellcheck="false"
+        enterkeyhint="go"
+      >
+      <button class="btn btn-primary" id="loadBtn" type="button">▶ Включить</button>
+    </div>
+
+    <!-- Быстрые пресеты источников -->
+    <div class="preset-row" id="presetRow">
+      <button class="preset-btn" data-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" type="button">
+        🎬 YouTube
+      </button>
+      <button class="preset-btn" data-url="https://vkvideo.ru/video-225853289_456239017" type="button">
+        🎥 VK Video
+      </button>
+      <button class="preset-btn" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" type="button">
+        📡 MP4 / HLS
+      </button>
+    </div>
+  </header>
+
+  <!-- ════════════════════════════════════════════════════════
+       ЦЕНТРАЛЬНАЯ ОБЛАСТЬ — ПЛЕЕР
+       ════════════════════════════════════════════════════════ -->
+  <main class="player-area" id="playerArea">
+
+    <!-- Заглушка «ничего не выбрано» -->
+    <div class="player-placeholder" id="placeholder">
+      <div class="placeholder-icon">🎥</div>
+      <div class="placeholder-title">Начнём смотреть вместе?</div>
+      <div class="placeholder-sub">
+        Вставьте ссылку на видео выше или выберите быстрый источник.<br>
+        Всё, что вы запускаете, синхронно увидит ваш собеседник.
+      </div>
+    </div>
+
+    <!-- Контейнер под YouTube (создаётся API динамически) -->
+    <div id="ytPlayerHost" class="player-shell hidden"></div>
+
+    <!-- Контейнер под HTML5 video / HLS -->
+    <div id="videoHost" class="player-shell hidden">
+      <video
+        id="nativeVideo"
+        class="native-video"
+        controls
+        playsinline
+        preload="auto"
+      ></video>
+    </div>
+
+    <!-- Контейнер под произвольный iframe (VK Video, vk.com, etc.) -->
+    <div id="iframeHost" class="player-shell hidden">
+      <iframe
+        id="embedFrame"
+        class="embed-frame"
+        src="about:blank"
+        frameborder="0"
+        allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+        allowfullscreen
+      ></iframe>
+    </div>
+
+  </main>
+
+  <!-- ════════════════════════════════════════════════════════
+       НИЖНЯЯ ПАНЕЛЬ — СТАТУС / ПИТЕРЫ / УПРАВЛЕНИЕ
+       ════════════════════════════════════════════════════════ -->
+  <footer class="app-footer" id="appFooter">
+    <div class="footer-status" id="footerStatus">
+      <span class="status-label" id="statusLabel">Ожидание видео…</span>
+    </div>
+
+    <div class="footer-controls">
+      <!-- Кнопка «Пригласить друга» — копирует ссылку на комнату -->
+      <button class="footer-btn" id="inviteBtn" type="button">
+        🔗 Пригласить
+      </button>
+
+      <!-- Кнопка «Кто в комнате» -->
+      <button class="footer-btn" id="peersBtn" type="button">
+        👥 Пиры
+      </button>
+
+      <!-- Кнопка сброса (перезапустить плеер) -->
+      <button class="footer-btn" id="resetBtn" type="button">
+        ↺ Сброс
+      </button>
+    </div>
+  </footer>
+
+  <!-- Скрипт приложения -->
+  <script src="app.js"></script>
+</body>
+</html>

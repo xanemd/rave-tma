@@ -1,0 +1,593 @@
+/* ═══════════════════════════════════════════════════════════
+   RAVE TMA — тёмная тема в стиле Telegram
+   Используем CSS-переменные Telegram WebApp SDK
+   ═══════════════════════════════════════════════════════════ */
+
+:root {
+  /* Telegram-переменные (подставляются SDK автоматически).
+     У каждого значения есть фолбэк для запуска вне Telegram. */
+  --tg-bg: var(--tg-theme-bg-color, #17212b);
+  --tg-secondary: var(--tg-theme-secondary-bg-color, #232e3c);
+  --tg-text: var(--tg-theme-text-color, #f5f5f5);
+  --tg-hint: var(--tg-theme-hint-color, #708499);
+  --tg-link: var(--tg-theme-link-color, #6ab2f2);
+  --tg-button: var(--tg-theme-button-color, #5288c1);
+  --tg-button-text: var(--tg-theme-button-text-color, #ffffff);
+  --tg-destructive: var(--tg-theme-destructive-text-color, #e53935);
+
+  /* Собственные переменные */
+  --radius: 12px;
+  --radius-sm: 8px;
+  --header-bg: rgba(23, 33, 43, 0.95);
+  --footer-bg: rgba(23, 33, 43, 0.95);
+  --border: rgba(255, 255, 255, 0.08);
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+
+  /* Telegram использует свой шрифт; фолбэки — системные с засечками,
+     чтобы максимально соответствовать нативному виду */
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ── Сброс ─────────────────────────────────────────────────── */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font);
+  background: var(--tg-bg);
+  color: var(--tg-text);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input {
+  font-family: inherit;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--tg-text);
+}
+
+::-webkit-scrollbar {
+  width: 4px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--tg-hint);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ШАПКА
+   ═══════════════════════════════════════════════════════════ */
+.app-header {
+  flex-shrink: 0;
+  background: var(--header-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--border);
+  padding: calc(10px + var(--safe-top)) 12px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  z-index: 10;
+}
+
+.header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.logo-icon {
+  width: 28px;
+  height: 28px;
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.logo-text {
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.room-badge {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--tg-hint);
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 140px;
+}
+
+/* ── Статус подключения ───────────────────────────────────── */
+.conn-status {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--tg-hint);
+  flex-shrink: 0;
+}
+
+.conn-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tg-hint);
+  transition: background 0.3s;
+}
+
+.conn-status.connected .conn-dot {
+  background: #4caf50;
+}
+.conn-status.disconnected .conn-dot {
+  background: var(--tg-destructive);
+}
+.conn-status.connected {
+  color: #8bc34a;
+}
+.conn-status.disconnected {
+  color: var(--tg-destructive);
+}
+
+/* ── Поле URL + кнопка ────────────────────────────────────── */
+.url-row {
+  display: flex;
+  gap: 8px;
+}
+
+.url-input {
+  flex: 1;
+  min-width: 0;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  font-size: 14px;
+  color: var(--tg-text);
+  transition: border-color 0.2s;
+}
+
+.url-input::placeholder {
+  color: var(--tg-hint);
+}
+
+.url-input:focus {
+  border-color: var(--tg-button);
+}
+
+.btn {
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 14px;
+  padding: 10px 16px;
+  white-space: nowrap;
+  transition: opacity 0.2s, transform 0.1s;
+}
+
+.btn:active {
+  opacity: 0.8;
+  transform: scale(0.97);
+}
+
+.btn-primary {
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+}
+
+/* ── Быстрые пресеты ──────────────────────────────────────── */
+.preset-row {
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  scrollbar-width: none;
+}
+
+.preset-row::-webkit-scrollbar {
+  display: none;
+}
+
+.preset-btn {
+  flex-shrink: 0;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  color: var(--tg-text);
+  font-size: 13px;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: 999px;
+  transition: background 0.2s, border-color 0.2s;
+}
+
+.preset-btn:active {
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  border-color: var(--tg-button);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ЦЕНТРАЛЬНАЯ ОБЛАСТЬ — ПЛЕЕР
+   ═══════════════════════════════════════════════════════════ */
+.player-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+.player-shell {
+  width: 100%;
+  max-width: 960px;
+  aspect-ratio: 16 / 9;
+  background: #000;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  position: relative;
+}
+
+.native-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
+.embed-frame {
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #000;
+}
+
+/* ── Заглушка ─────────────────────────────────────────────── */
+.player-placeholder {
+  text-align: center;
+  padding: 24px;
+  max-width: 420px;
+}
+
+.placeholder-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.7;
+}
+
+.placeholder-title {
+  font-size: 20px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--tg-text);
+}
+
+.placeholder-sub {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--tg-hint);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   НИЖНЯЯ ПАНЕЛЬ
+   ═══════════════════════════════════════════════════════════ */
+.app-footer {
+  flex-shrink: 0;
+  background: var(--footer-bg);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-top: 1px solid var(--border);
+  padding: 8px 12px calc(8px + var(--safe-bottom)) 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.footer-status {
+  text-align: center;
+}
+
+.status-label {
+  font-size: 12px;
+  color: var(--tg-hint);
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer-controls {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+}
+
+.footer-btn {
+  flex: 1;
+  max-width: 160px;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  color: var(--tg-text);
+  border-radius: var(--radius-sm);
+  padding: 10px 8px;
+  font-size: 13px;
+  font-weight: 500;
+  transition: background 0.2s, transform 0.1s;
+}
+
+.footer-btn:active {
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  transform: scale(0.97);
+}
+
+/* ── Всплывающее уведомление (snackbar) ───────────────────── */
+.snackbar {
+  position: fixed;
+  left: 50%;
+  bottom: calc(90px + var(--safe-bottom));
+  transform: translateX(-50%) translateY(20px);
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  color: var(--tg-text);
+  padding: 10px 18px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+  z-index: 100;
+  max-width: 90vw;
+  text-align: center;
+}
+
+.snackbar.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+
+/* ── Модальное окно «Пиры» ────────────────────────────────── */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 200;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s;
+}
+
+.modal-overlay.show {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.modal-sheet {
+  background: var(--tg-bg);
+  width: 100%;
+  max-width: 500px;
+  border-radius: 20px 20px 0 0;
+  padding: 20px 16px calc(20px + var(--safe-bottom)) 16px;
+  transform: translateY(100%);
+  transition: transform 0.25s;
+  border-top: 1px solid var(--border);
+}
+
+.modal-overlay.show .modal-sheet {
+  transform: translateY(0);
+}
+
+.modal-title {
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+  margin-bottom: 16px;
+}
+
+.peer-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: var(--tg-secondary);
+  border-radius: var(--radius-sm);
+  margin-bottom: 8px;
+}
+
+.peer-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--tg-button);
+  color: var(--tg-button-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.peer-name {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.peer-id {
+  font-size: 11px;
+  color: var(--tg-hint);
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+}
+
+.modal-close {
+  width: 100%;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  color: var(--tg-text);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  margin-top: 8px;
+}
+
+/* ── Адаптивность: узкие мобильные экраны ─────────────────── */
+@media (max-width: 480px) {
+  .logo-text {
+    font-size: 15px;
+  }
+
+  .conn-status {
+    font-size: 10px;
+  }
+
+  .url-input {
+    font-size: 13px;
+    padding: 9px 10px;
+  }
+
+  .btn {
+    font-size: 13px;
+    padding: 9px 12px;
+  }
+
+  .preset-btn {
+    font-size: 12px;
+    padding: 6px 12px;
+  }
+
+  .player-area {
+    padding: 4px;
+  }
+
+  .player-shell {
+    border-radius: var(--radius-sm);
+  }
+
+  .footer-btn {
+    font-size: 12px;
+    padding: 9px 6px;
+  }
+
+  .placeholder-icon {
+    font-size: 48px;
+  }
+
+  .placeholder-title {
+    font-size: 17px;
+  }
+
+  .placeholder-sub {
+    font-size: 13px;
+  }
+}
+
+/* ── Средние экраны / планшеты: плеер чуть компактнее ─────── */
+@media (max-width: 768px) {
+  .player-shell {
+    max-width: 100%;
+  }
+}
+
+/* ── Очень маленькие высоты (ландшафт смартфонов) ─────────── */
+@media (max-height: 560px) {
+  .logo-icon {
+    width: 24px;
+    height: 24px;
+    font-size: 11px;
+  }
+
+  .logo-text {
+    font-size: 14px;
+  }
+
+  .app-header {
+    padding-top: calc(6px + var(--safe-top));
+    gap: 6px;
+  }
+
+  .url-input {
+    padding: 7px 10px;
+    font-size: 12px;
+  }
+
+  .btn {
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+
+  .preset-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+  }
+
+  .footer-btn {
+    padding: 6px 4px;
+    font-size: 11px;
+  }
+}

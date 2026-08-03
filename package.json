@@ -1,0 +1,26 @@
+{
+  "name": "rave-tma",
+  "version": "1.0.0",
+  "description": "Telegram Mini App — синхронный совместный просмотр видео (аналог WatchTG / Rave) для двоих пользователей",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [
+    "telegram",
+    "mini-app",
+    "watch-together",
+    "sync",
+    "video",
+    "socket.io",
+    "youtube"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.19.2",
+    "socket.io": "^4.7.5"
+  },
+  "engines": {
+    "node": ">=16"
+  }
+}
