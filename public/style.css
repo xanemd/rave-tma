@@ -300,6 +300,7 @@ input {
 }
 
 .diagnostic-panel {
+  display: none !important; /* скрыто — мешает интерфейсу */
   position: absolute;
   left: 0;
   right: 0;
@@ -310,7 +311,6 @@ input {
   border-top: 1px solid rgba(255,255,255,0.08);
   font-size: 11px;
   color: var(--tg-text);
-  display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 6px 10px;
   z-index: 5;
