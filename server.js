@@ -180,11 +180,7 @@ io.on('connection', (socket) => {
     room.startedAt = Date.now();
 
     console.log(`▶  PLAY   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-    socket.to(roomId).emit('PLAY', {
-      ...payload,
-      time: pos,
-      serverTime: Date.now(),
-    });
+    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
@@ -202,11 +198,7 @@ io.on('connection', (socket) => {
     room.startedAt = 0;
 
     console.log(`⏸  PAUSE  | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-    socket.to(roomId).emit('PAUSE', {
-      ...payload,
-      time: pos,
-      serverTime: Date.now(),
-    });
+    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
@@ -225,19 +217,7 @@ io.on('connection', (socket) => {
     }
 
     console.log(`⏩ SEEK   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-    const seekTarget = typeof payload.forPeer === 'string' && payload.forPeer
-      ? payload.forPeer
-      : null;
-    const seekEvent = {
-      ...payload,
-      time: pos,
-      serverTime: Date.now(),
-    };
-    if (seekTarget) {
-      io.to(seekTarget).emit('SEEK', seekEvent);
-    } else {
-      socket.to(roomId).emit('SEEK', seekEvent);
-    }
+    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
@@ -260,21 +240,7 @@ io.on('connection', (socket) => {
     room.startedAt = Date.now();
 
     console.log(`🎬 MEDIA  | ${socket.id} | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
-    const mediaTarget = typeof payload.forPeer === 'string' && payload.forPeer
-      ? payload.forPeer
-      : null;
-    const mediaEvent = {
-      ...payload,
-      url,
-      mediaType: type,
-      time: 0,
-      serverTime: Date.now(),
-    };
-    if (mediaTarget) {
-      io.to(mediaTarget).emit('CHANGE_MEDIA', mediaEvent);
-    } else {
-      socket.to(roomId).emit('CHANGE_MEDIA', mediaEvent);
-    }
+    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 

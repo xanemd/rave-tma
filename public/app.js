@@ -905,25 +905,9 @@ function connectSocket() {
   });
 
   // ── Ивенты синхронизации ─────────────────────────────────
-  s.on('PLAY', (data) => {
-    console.log('[Sync] PLAY ←', data);
-    handleRemotePlay(data);
-  });
-
-  s.on('PAUSE', (data) => {
-    console.log('[Sync] PAUSE ←', data);
-    handleRemotePause(data);
-  });
-
-  s.on('SEEK', (data) => {
-    console.log('[Sync] SEEK ←', data);
-    handleRemoteSeek(data);
-  });
-
-  s.on('CHANGE_MEDIA', (data) => {
-    console.log('[Sync] CHANGE_MEDIA ←', data);
-    handleRemoteMedia(data);
-  });
+  // В server-authoritative архитектуре (как в Rave) клиент получает
+  // только ROOM_STATE — полное состояние комнаты после каждого изменения.
+  // Отдельные события PLAY/PAUSE/SEEK/CHANGE_MEDIA не отправляются.
 
   s.on('USER_LEFT', ({ id, viewers }) => {
     console.log('[Sync] USER_LEFT ←', id, '| viewers:', viewers);
