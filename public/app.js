@@ -1334,7 +1334,7 @@ function startSyncLoop() {
       url: state.currentUrl,
       time,
     });
-  }, 5000);
+  }, 2500);
 }
 
 function stopSyncLoop() {
