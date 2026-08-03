@@ -584,12 +584,12 @@ function loadMedia(rawUrl, opts = {}) {
 
   switch (parsed.type) {
     case SOURCE_TYPES.YOUTUBE:
-      loadYouTubeVideo(parsed.payload.videoId, autoplay && !incoming);
+      loadYouTubeVideo(parsed.payload.videoId, autoplay);
       break;
 
     case SOURCE_TYPES.HLS:
     case SOURCE_TYPES.NATIVE:
-      loadNativeOrHls(parsed.payload.url, autoplay && !incoming);
+      loadNativeOrHls(parsed.payload.url, autoplay);
       break;
 
     case SOURCE_TYPES.IFRAME:
@@ -686,6 +686,7 @@ function connectSocket() {
         mediaType: state.currentType,
         url: state.currentUrl,
         time,
+        autoplay: true,
         forPeer: from,
       });
       setTimeout(() => {
@@ -918,11 +919,13 @@ function handleRemoteMedia(data) {
 
     if (ready) {
       clearInterval(retryInterval);
+      // Всегда применяем seek, если время > 0
       if (typeof time === 'number' && time > 0) {
         handleRemoteSeek({ ...data, mediaType: mediaType || state.currentType, time });
-        if (autoplay) {
-          handleRemotePlay({ ...data, mediaType: mediaType || state.currentType, time });
-        }
+      }
+      // Всегда запускаем, если autoplay (даже при time === 0)
+      if (autoplay) {
+        handleRemotePlay({ ...data, mediaType: mediaType || state.currentType, time });
       }
     } else if (attempts >= maxAttempts) {
       clearInterval(retryInterval);
