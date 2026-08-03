@@ -1536,17 +1536,15 @@ function addChatMessage(msg, mine = false) {
   const isMine = mine || (state.socket && msg.socketId === state.socket.id);
 
   const el = document.createElement('div');
-  el.className = 'msg ' + (isMine ? 'mine' : 'theirs');
+  el.className = 'message-bubble ' + (isMine ? 'outgoing' : 'incoming');
 
   const time = formatTime(msg.time);
   const sender = escapeHtml(msg.sender || 'Гость');
 
   el.innerHTML = `
-    <div class="msg-meta">
-      <span class="msg-sender">${isMine ? 'Вы' : sender}</span>
-      <span class="msg-time">${time}</span>
-    </div>
-    <div class="msg-text">${escapeHtml(msg.text)}</div>
+    <span class="message-sender">${isMine ? 'Вы' : sender}</span>
+    <span class="message-text">${escapeHtml(msg.text)}</span>
+    <span class="message-time">${time}</span>
   `;
 
   els.chatMessages.appendChild(el);
