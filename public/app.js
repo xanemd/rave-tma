@@ -25,7 +25,7 @@
    0. КОНСТАНТЫ И СОСТОЯНИЕ
    ═══════════════════════════════════════════════════════════ */
 
-const SYNC_THRESHOLD_SECONDS = 0.5;
+const SYNC_THRESHOLD_SECONDS = 0.3;
 
 const SOURCE_TYPES = {
   YOUTUBE: 'youtube',
@@ -174,20 +174,26 @@ function initTelegram() {
     user: state.userName,
   });
 
-  // Фиксируем высоту плеера по стабильной высоте вьюпорта Telegram,
-  // чтобы видео не уменьшалось при открытии клавиатуры.
+  // Фиксируем высоту плеера по стабильной высоте вьюпорта Telegram.
+  // При открытии клавиатуры уменьшаем плеер, чтобы дать больше места чату.
   const setPlayerHeight = () => {
     const stableH = (typeof tg.viewportStableHeight === 'number' && tg.viewportStableHeight > 0)
       ? tg.viewportStableHeight
       : window.innerHeight;
-    const playerH = Math.min(Math.max(stableH * 0.35, 180), 260);
+    const currentH = (typeof tg.viewportHeight === 'number' && tg.viewportHeight > 0)
+      ? tg.viewportHeight
+      : stableH;
+    // Если клавиатура открыта (текущая высота < 80% стабильной) — уменьшаем плеер до 15%
+    const isKeyboardOpen = currentH < stableH * 0.8;
+    const ratio = isKeyboardOpen ? 0.15 : 0.22;
+    const playerH = Math.min(Math.max(stableH * ratio, 140), 220);
     document.documentElement.style.setProperty('--player-h', playerH + 'px');
   };
   setPlayerHeight();
 
   tg.onEvent('viewportChanged', () => {
-    // НЕ обновляем --player-h при изменении вьюпорта (клавиатура),
-    // чтобы видео не уменьшалось.
+    // Пересчитываем высоту плеера при открытии/закрытии клавиатуры.
+    setPlayerHeight();
     if (state.ytPlayer && typeof state.ytPlayer.getIframe === 'function') {
       requestAnimationFrame(() => {
         try { state.ytPlayer.getIframe(); } catch (e) { /* ignore */ }
@@ -1316,10 +1322,12 @@ let syncInterval = null;
 function startSyncLoop() {
   if (syncInterval) clearInterval(syncInterval);
 
+  // Мягкий таймер для компенсации дрейфа — раз в 10 сек.
+  // Основная синхронизация идёт по событиям play/pause/seek.
   syncInterval = setInterval(() => {
     if (!state.socket || !state.connected) return;
     if (state.applyingRemote) return;
-    if (!state.isHost) return; // только хост отправляет синхрон-события
+    if (!state.isHost) return;
 
     const type = state.currentType;
     if (type !== SOURCE_TYPES.YOUTUBE && type !== SOURCE_TYPES.NATIVE && type !== SOURCE_TYPES.HLS) {
@@ -1334,7 +1342,7 @@ function startSyncLoop() {
       url: state.currentUrl,
       time,
     });
-  }, 2500);
+  }, 10000);
 }
 
 function stopSyncLoop() {
