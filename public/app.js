@@ -35,7 +35,7 @@ const SOURCE_TYPES = {
 
 const state = {
   socket: null,
-  roomId: 'main_room',
+  roomId: '',
   connected: false,
 
   currentType: SOURCE_TYPES.UNKNOWN,
@@ -79,6 +79,9 @@ const els = {
   iframeHost: $('#iframeHost'),
   embedFrame: $('#embedFrame'),
 
+  loadingOverlay: $('#loadingOverlay'),
+  loadingText: $('#loadingText'),
+
   inviteBtn: $('#inviteBtn'),
   peersBtn: $('#peersBtn'),
   resetBtn: $('#resetBtn'),
@@ -95,6 +98,8 @@ let snackbarTimer = null;
 function initTelegram() {
   if (!window.Telegram || !window.Telegram.WebApp) {
     console.warn('Telegram WebApp SDK недоступен — работаем в обычном браузере.');
+    // Создаём комнату и для обычного браузера (без Telegram)
+    if (!state.roomId) state.roomId = generateRoomId();
     return;
   }
 
@@ -132,6 +137,11 @@ function initTelegram() {
 
   if (roomFromTelegram && /^[a-zA-Z0-9_-]{1,64}$/.test(roomFromTelegram)) {
     state.roomId = roomFromTelegram;
+  } else if (!state.roomId) {
+    // Нет комнаты — создаём новую уникальную.
+    // Каждый новый пользователь получает свою комнату, а ссылка
+    // ?room=... (кнопка «Пригласить») позволит другу попасть в неё.
+    state.roomId = generateRoomId();
   }
 
   console.log('[Telegram] initData →', {
@@ -148,6 +158,26 @@ function initTelegram() {
       });
     }
   });
+}
+
+/**
+ * Генерирует уникальный ID комнаты вида r_xxxxxxxxxx.
+ * Используется, когда пользователь открыл приложение без ссылки-приглашения.
+ */
+function generateRoomId() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  let result = 'r_';
+  try {
+    const arr = new Uint32Array(6);
+    crypto.getRandomValues(arr);
+    for (let i = 0; i < arr.length; i++) {
+      result += chars[arr[i] % chars.length];
+    }
+  } catch (e) {
+    // Фолбэк, если crypto недоступен
+    result += Math.random().toString(36).slice(2, 10);
+  }
+  return result;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -357,6 +387,7 @@ function resetPlayers(keepVisible = false) {
 window.onYouTubeIframeAPIReady = function () {
   console.log('[YouTube] IFrame API готов');
   state.ytReady = true;
+  hideLoading();
 
   // Если во время загрузки API пользователь уже вставил ссылку —
   // загружаем её.
@@ -365,6 +396,17 @@ window.onYouTubeIframeAPIReady = function () {
     state.pendingYouTubeVideoId = null;
   }
 };
+
+// Если YouTube API не загрузился за 10 секунд — сообщаем об ошибке
+// вместо вечного чёрного экрана.
+setTimeout(() => {
+  if (!state.ytReady) {
+    console.error('[YouTube] API не загрузился за 10 секунд');
+    setStatus('⚠️ YouTube API не загрузился. Проверьте соединение.');
+    showSnack('❌ Не удалось загрузить YouTube API');
+    hideLoading();
+  }
+}, 10000);
 
 /**
  * Загружает YouTube-видео (создаёт или переиспользует плеер).
@@ -400,6 +442,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
       events: {
         onReady: (event) => {
           console.log('[YouTube] Плеер готов');
+          hideLoading();
           // YouTube IFrame API НЕ возвращает Promise из playVideo().
           // Вместо этого проверяем состояние плеера через onStateChange.
           // Если браузер заблокирует автовоспроизведение, плеер
@@ -424,6 +467,8 @@ function loadYouTubeVideo(videoId, autoplay = true) {
         onError: (event) => {
           console.error('[YouTube] Ошибка:', event.data);
           setStatus('⚠️ Ошибка YouTube-плеера (код ' + event.data + ')');
+          showSnack('❌ Не удалось воспроизвести YouTube-видео');
+          hideLoading();
         },
       },
     });
@@ -520,6 +565,7 @@ function loadNativeOrHls(url, autoplay = true) {
       window.hlsInstance.attachMedia(video);
 
       window.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+        hideLoading();
         setStatus('📡 HLS поток готов');
         if (autoplay) {
           video.play().catch(() => handleAutoplayBlocked('HLS'));
@@ -546,12 +592,14 @@ function loadNativeOrHls(url, autoplay = true) {
       // Нативный HLS (Safari / iOS)
       video.src = url;
       video.addEventListener('loadedmetadata', () => {
+        hideLoading();
         setStatus('📡 HLS поток готов (нативно)');
         if (autoplay) video.play().catch(() => handleAutoplayBlocked('HLS'));
       }, { once: true });
     } else {
       console.error('[HLS] HLS.js недоступен');
       setStatus('⚠️ HLS не поддерживается на этом устройстве');
+      hideLoading();
     }
   } else {
     // Прямой .mp4 / .webm и т.д.
@@ -561,6 +609,11 @@ function loadNativeOrHls(url, autoplay = true) {
       video.play().catch(() => handleAutoplayBlocked('видео'));
     }
   }
+
+  // Для прямых .mp4 — скрываем индикатор по загрузке метаданных
+  video.addEventListener('loadedmetadata', () => {
+    hideLoading();
+  }, { once: true });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -570,6 +623,10 @@ function loadNativeOrHls(url, autoplay = true) {
 function loadIframe(embedUrl) {
   showOnlyShell('iframe');
   els.embedFrame.src = embedUrl;
+
+  // Скрываем индикатор загрузки после небольшой паузы,
+  // чтобы iframe успел начать рендериться
+  setTimeout(hideLoading, 1500);
   setStatus('🖥 Встроенный плеер');
 }
 
@@ -602,6 +659,9 @@ function loadMedia(rawUrl, opts = {}) {
 
   // Сбрасываем старые плееры
   resetPlayers(true);
+
+  // Показываем индикатор загрузки вместо чёрного экрана
+  showLoading('Загрузка видео…');
 
   // ── Запускаем нужный плеер ────────────────────────────────
   switch (parsed.type) {
@@ -1062,6 +1122,7 @@ function bindNativeVideoEvents() {
     console.error('[Video] Ошибка:', e);
     setStatus('⚠️ Ошибка воспроизведения видео');
     showSnack('❌ Не удалось воспроизвести видео');
+    hideLoading();
   });
 }
 
@@ -1082,6 +1143,19 @@ function updateConnUI(connected) {
   els.connText.textContent = connected
     ? 'В сети'
     : 'Нет соединения';
+}
+
+function showLoading(text) {
+  if (els.loadingOverlay) {
+    if (text && els.loadingText) els.loadingText.textContent = text;
+    els.loadingOverlay.classList.remove('hidden');
+  }
+}
+
+function hideLoading() {
+  if (els.loadingOverlay) {
+    els.loadingOverlay.classList.add('hidden');
+  }
 }
 
 function showSnack(text, ms = 2500) {

@@ -1,0 +1,18 @@
+{
+  "type": "web_service",
+  "name": "rave-tma",
+  "ownerId": "tea-d9o9v37lk1mc7385d38g",
+  "repo": "https://github.com/xanemd/rave-tma",
+  "branch": "main",
+  "autoDeploy": "yes",
+  "plan": "free",
+  "envVars": [],
+  "serviceDetails": {
+    "env": "node",
+    "envSpecificDetails": {
+      "buildCommand": "npm install",
+      "startCommand": "npm start",
+      "healthCheckPath": "/"
+    }
+  }
+}
