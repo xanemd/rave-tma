@@ -376,6 +376,7 @@ input {
   font-size: 13px;
   line-height: 1.2;
   word-wrap: break-word;
+  overflow-wrap: break-word;
   white-space: pre-wrap;
 }
 
@@ -416,6 +417,8 @@ input {
   margin: 0;
   padding: 0;
   line-height: 1.2;
+  word-break: break-word;
+  overflow-wrap: break-word;
 }
 
 .chat-input-row {
