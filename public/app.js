@@ -1763,6 +1763,35 @@ function bindUI() {
 }
 
 /* ═══════════════════════════════════════════════════════════
+   18.5. АНИМИРОВАННЫЕ СЕРДЕЧКИ В ЧАТЕ
+   ═══════════════════════════════════════════════════════════ */
+
+function createHeart() {
+  const container = document.querySelector('.hearts-bg');
+  if (!container) return;
+
+  // Случайный пропуск: создаем сердечко только в 30% случаев
+  if (Math.random() > 0.3) return;
+
+  const heart = document.createElement('div');
+  heart.classList.add('heart-particle');
+  
+  const hearts = ['💖', '💕', '💗', '❤️', '🌸'];
+  heart.innerText = hearts[Math.floor(Math.random() * hearts.length)];
+  
+  heart.style.left = Math.random() * 90 + 5 + '%';
+  heart.style.animationDuration = (Math.random() * 3 + 6) + 's'; // медленный подъем (6-9 сек)
+  heart.style.fontSize = (Math.random() * 8 + 12) + 'px';
+
+  container.appendChild(heart);
+
+  setTimeout(() => { heart.remove(); }, 9000);
+}
+
+// Запускаем проверку раз в 3 секунды
+setInterval(createHeart, 3000);
+
+/* ═══════════════════════════════════════════════════════════
    19. ИНИЦИАЛИЗАЦИЯ
    ═══════════════════════════════════════════════════════════ */
 
