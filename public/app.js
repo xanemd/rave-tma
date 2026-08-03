@@ -117,7 +117,6 @@ const els = {
   urlInput: $('#urlInput'),
   loadBtn: $('#loadBtn'),
   presetRow: $('#presetRow'),
-  quickList: $('#quickList'),
   joinCodeInput: $('#joinCodeInput'),
   joinCodeBtn: $('#joinCodeBtn'),
   myRoomCode: $('#myRoomCode'),
@@ -1700,14 +1699,6 @@ function bindUI() {
   // Пресеты источников (делегирование)
   els.presetRow.addEventListener('click', (event) => {
     const btn = event.target.closest('.preset-btn');
-    if (!btn) return;
-    const url = btn.dataset.url;
-    if (url) loadMedia(url);
-  });
-
-  // Быстрый выбор
-  els.quickList.addEventListener('click', (event) => {
-    const btn = event.target.closest('.quick-item');
     if (!btn) return;
     const url = btn.dataset.url;
     if (url) loadMedia(url);

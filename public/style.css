@@ -612,43 +612,6 @@ input {
   -webkit-user-select: all;
 }
 
-.quick-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.quick-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 12px;
-  background: var(--tg-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  text-align: left;
-  color: var(--tg-text);
-  transition: background 0.2s, border-color 0.2s;
-}
-
-.quick-item:active {
-  background: var(--tg-button);
-  border-color: var(--tg-button);
-  color: var(--tg-button-text);
-}
-
-.quick-icon {
-  font-size: 18px;
-  flex-shrink: 0;
-}
-
-.quick-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
 .queue-list {
   display: flex;
   flex-direction: column;
