@@ -1770,8 +1770,8 @@ function createHeart() {
   const container = document.querySelector('.hearts-bg');
   if (!container) return;
 
-  // Случайный пропуск: создаем сердечки только в 80% случаев
-  if (Math.random() > 0.8) return;
+  // Случайный пропуск: создаем сердечки только в 40% случаев
+  if (Math.random() > 0.4) return;
 
   // Создаем 2-4 сердечка за раз
   const count = Math.floor(Math.random() * 3) + 2; // 2, 3 или 4
@@ -1795,8 +1795,8 @@ function createHeart() {
   }
 }
 
-// Запускаем проверку раз в 2 секунды (чаще, так как теперь несколько сердечек)
-setInterval(createHeart, 2000);
+// Запускаем проверку раз в 3 секунды
+setInterval(createHeart, 3000);
 
 /* ═══════════════════════════════════════════════════════════
    19. ИНИЦИАЛИЗАЦИЯ
