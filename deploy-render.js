@@ -16,14 +16,19 @@ const payload = {
   plan: "free",
   numInstances: 1,
   envVars: [],
-  envSpecificDetails: {
-    buildCommand: "",
+  serviceDetails: {
+    env: "node",
+    buildCommand: "npm install",
     startCommand: "npm start",
     healthCheckPath: "/",
-    env: "node",
-    runtime: "node",
-    numInstances: 1,
-    pullRequestPreviewsEnabled: false,
+    envSpecificDetails: {
+      buildCommand: "npm install",
+      startCommand: "npm start",
+      healthCheckPath: "/",
+      runtime: "node",
+      numInstances: 1,
+      pullRequestPreviewsEnabled: false,
+    },
   },
 };
 
