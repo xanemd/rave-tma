@@ -1174,6 +1174,7 @@ function withRemoteFlag(fn) {
 }
 
 function handleRemotePlay(data) {
+  state.isPlaying = true;
   const type = data.mediaType || state.currentType;
   const targetTime = getAdjustedRemoteTime(data);
 
@@ -1230,6 +1231,7 @@ function handleRemotePlay(data) {
 }
 
 function handleRemotePause(data) {
+  state.isPlaying = false;
   const type = data.mediaType || state.currentType;
 
   if (data.url && data.url !== state.currentUrl) {
