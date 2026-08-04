@@ -1492,6 +1492,7 @@ function showRoomView() {
   if (el) el.classList.remove('hidden');
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'none';
+  hideLoading();
 
   if (state.pendingRoomMedia) {
     const { url } = state.pendingRoomMedia;
@@ -1518,6 +1519,7 @@ function renderRoomVideo(videoUrl) {
   if (!container || !videoUrl) return;
 
   document.querySelectorAll('.player-shell').forEach((s) => s.classList.add('hidden'));
+  hideLoading();
 
   const youtubeId = extractYouTubeId(videoUrl);
 
@@ -1531,7 +1533,6 @@ function renderRoomVideo(videoUrl) {
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowfullscreen>
       </iframe>
-      <div id="video-loader" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10; align-items:center; justify-content:center; color:#fff; font-size:14px;">Загрузка видео…</div>
     `;
   } else {
     container.innerHTML = `
@@ -1539,7 +1540,6 @@ function renderRoomVideo(videoUrl) {
         <source src="${videoUrl}" type="video/mp4">
         Ваш браузер не поддерживает видео.
       </video>
-      <div id="video-loader" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10; align-items:center; justify-content:center; color:#fff; font-size:14px;">Загрузка видео…</div>
     `;
   }
 
