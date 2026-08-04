@@ -73,6 +73,7 @@ const state = {
   clockSyncInterval: null,
   vimeoReady: false,
   pendingSocketEvents: [],
+  pendingRoomMedia: null,
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -403,6 +404,23 @@ function resetPlayers(keepVisible = false) {
 
   if (!keepVisible) {
     showOnlyShell(null);
+  }
+
+  const container = document.getElementById('player-container');
+  if (container) {
+    container.innerHTML = `
+      <div class="player-placeholder" id="placeholder">
+        <div class="placeholder-icon">🎥</div>
+        <div class="placeholder-title">Начнём смотреть вместе?</div>
+        <div class="placeholder-sub">
+          Нажмите «Сменить видео» и вставьте ссылку.<br>
+          Всё, что вы запускаете, синхронно увидит ваш собеседник.
+        </div>
+      </div>
+      <div id="video-loader" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10; align-items:center; justify-content:center; color:#fff; font-size:14px;">
+        Загрузка видео…
+      </div>
+    `;
   }
 }
 
@@ -881,16 +899,16 @@ function connectSocket() {
     }
 
     if (roomUrl) {
-      if (roomUrl !== state.currentUrl) {
-        // URL изменился — загружаем новое медиа
-        handleRemoteMedia({
-          mediaType: state.currentType,
-          url: roomUrl,
-          time: roomTime,
-          autoplay: roomPlaying,
-        });
-      } else if (state.currentUrl === roomUrl) {
-        // URL тот же — только обновляем позицию/статус без перезагрузки
+      state.currentUrl = roomUrl;
+      state.pendingRoomMedia = {
+        url: roomUrl,
+        type: state.currentType,
+        time: roomTime,
+        autoplay: roomPlaying,
+      };
+
+      if (isRoomViewVisible()) {
+        renderRoomVideo(roomUrl);
         if (roomPlaying) {
           handleRemotePlay({
             mediaType: state.currentType,
@@ -906,7 +924,8 @@ function connectSocket() {
         }
       }
     } else if (state.currentUrl) {
-      // В комнате нет медиа — сбрасываем плеер
+      state.currentUrl = '';
+      state.pendingRoomMedia = null;
       resetPlayers();
     }
 
@@ -1473,6 +1492,13 @@ function showRoomView() {
   if (el) el.classList.remove('hidden');
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'none';
+
+  if (state.pendingRoomMedia) {
+    const { url } = state.pendingRoomMedia;
+    state.pendingRoomMedia = null;
+    state.currentUrl = url;
+    renderRoomVideo(url);
+  }
 }
 
 function hideRoomView() {
@@ -1480,6 +1506,46 @@ function hideRoomView() {
   if (el) el.classList.add('hidden');
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'flex';
+}
+
+function isRoomViewVisible() {
+  const el = els.roomViewScreen;
+  return el && !el.classList.contains('hidden');
+}
+
+function renderRoomVideo(videoUrl) {
+  const container = document.getElementById('player-container');
+  const loader = document.getElementById('video-loader');
+  if (!container || !videoUrl) return;
+
+  // Hide legacy shells
+  document.querySelectorAll('.player-shell').forEach((s) => s.classList.add('hidden'));
+
+  if (loader) loader.style.display = 'flex';
+
+  const youtubeId = extractYouTubeId(videoUrl);
+
+  if (youtubeId) {
+    const origin = encodeURIComponent(window.location.origin);
+    container.innerHTML = `
+      <iframe
+        id="yt-player-iframe"
+        src="https://www.youtube.com/embed/${youtubeId}?autoplay=1&muted=1&playsinline=1&controls=1&enablejsapi=1&origin=${origin}"
+        style="width: 100%; height: 100%; border: none;"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    `;
+  } else {
+    container.innerHTML = `
+      <video id="main-player" controls autoplay playsinline style="width:100%; height:100%; object-fit:contain;">
+        <source src="${videoUrl}" type="video/mp4">
+        Ваш браузер не поддерживает видео.
+      </video>
+    `;
+  }
+
+  if (loader) loader.style.display = 'none';
 }
 
 function setActiveTab(tabId) {
@@ -2098,6 +2164,35 @@ function joinRoomByCode() {
 }
 
 function bindUI() {
+  // ── Вход по ID комнаты ────────────────────────────────────
+  const joinRoomBtn = document.getElementById('join-room-btn');
+  const joinRoomInput = document.getElementById('join-room-input');
+  if (joinRoomBtn && joinRoomInput) {
+    joinRoomBtn.addEventListener('click', () => {
+      let inputVal = joinRoomInput.value.trim();
+      if (!inputVal) return;
+
+      if (inputVal.includes('startapp=')) {
+        inputVal = inputVal.split('startapp=')[1];
+      }
+
+      state.roomId = inputVal;
+      els.roomBadge.textContent = state.roomId;
+      els.roomBadge.title = 'Комната: ' + state.roomId;
+      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+
+      if (state.socket) {
+        state.socket.disconnect();
+        state.socket = null;
+      }
+      connectSocket();
+
+      setActiveTab('rooms-tab');
+      showRoomView();
+      showSnack('🔑 Подключено к комнате: ' + inputVal);
+    });
+  }
+
   // ── Нижнее меню навигации (Bottom Navigation) ─────────────
   document.querySelectorAll('.nav-item').forEach((item) => {
     item.addEventListener('click', () => {

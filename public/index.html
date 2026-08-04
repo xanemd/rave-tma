@@ -70,18 +70,22 @@
 
       <!-- ── ПЛЕЕР ─────────────────────────────────────────── -->
       <section class="player-section" id="playerSection">
-
-        <!-- Заглушка «ничего не выбрано» -->
-        <div class="player-placeholder" id="placeholder">
-          <div class="placeholder-icon">🎥</div>
-          <div class="placeholder-title">Начнём смотреть вместе?</div>
-          <div class="placeholder-sub">
-            Нажмите «Сменить видео» и вставьте ссылку.<br>
-            Всё, что вы запускаете, синхронно увидит ваш собеседник.
+        <!-- Контейнер для renderRoomVideo (YouTube iframe / MP4 video) -->
+        <div id="player-container" style="width:100%;height:100%;position:relative;">
+          <div class="player-placeholder" id="placeholder">
+            <div class="placeholder-icon">🎥</div>
+            <div class="placeholder-title">Начнём смотреть вместе?</div>
+            <div class="placeholder-sub">
+              Нажмите «Сменить видео» и вставьте ссылку.<br>
+              Всё, что вы запускаете, синхронно увидит ваш собеседник.
+            </div>
+          </div>
+          <div id="video-loader" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10; align-items:center; justify-content:center; color:#fff; font-size:14px;">
+            Загрузка видео…
           </div>
         </div>
 
-        <!-- Контейнер под YouTube (создаётся API динамически) -->
+        <!-- Контейнер под YouTube API (legacy, используется drawer) -->
         <div id="ytPlayerHost" class="player-shell hidden"></div>
 
         <!-- Контейнер под HTML5 video / HLS -->
@@ -95,7 +99,7 @@
           ></video>
         </div>
 
-        <!-- Контейнер под произвольный iframe (VK Video, vk.com, etc.) -->
+        <!-- Контейнер под произвольный iframe -->
         <div id="iframeHost" class="player-shell hidden">
           <iframe
             id="embedFrame"
@@ -258,6 +262,10 @@
         <button class="btn btn-ghost btn-sm" id="refreshRoomsBtn" type="button">🔄 Обновить</button>
       </div>
       <div class="tab-body">
+        <div class="join-room-box">
+          <input type="text" id="join-room-input" placeholder="ID комнаты или ссылка..." autocomplete="off">
+          <button id="join-room-btn" class="btn btn-primary btn-sm">Войти</button>
+        </div>
         <div class="room-list" id="roomList">
           <div class="room-item" data-room="main_room">
             <span class="room-item-icon">🎬</span>
