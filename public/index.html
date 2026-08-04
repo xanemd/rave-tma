@@ -27,218 +27,292 @@
 <body>
 
   <!-- ════════════════════════════════════════════════════════
-       ВЕРХНЯЯ ПАНЕЛЬ
+       ЭКРАН КОМНАТЫ (скрыт по умолчанию, открывается при входе)
        ════════════════════════════════════════════════════════ -->
-  <header class="app-header" id="appHeader">
-    <div class="header-row">
-      <div class="logo">
-        <span class="logo-icon">▶</span>
-        <span class="logo-text">Rave</span>
-        <span class="room-badge" id="roomBadge" title="Комната">main_room</span>
-      </div>
+  <div id="room-view-screen" class="room-view-screen hidden">
 
-      <!-- Индикатор подключения -->
-      <div class="conn-status" id="connStatus">
-        <span class="conn-dot" id="connDot"></span>
-        <span id="connText">Подключение…</span>
-      </div>
-    </div>
+    <!-- ════════════════════════════════════════════════════════
+         ВЕРХНЯЯ ПАНЕЛЬ
+         ════════════════════════════════════════════════════════ -->
+    <header class="app-header" id="appHeader">
+      <div class="header-row">
+        <div class="logo">
+          <span class="logo-icon">▶</span>
+          <span class="logo-text">Rave</span>
+          <span class="room-badge" id="roomBadge" title="Комната">main_room</span>
+        </div>
 
-    <!-- Компактная строка: кнопка «Сменить видео» + пригласить -->
-    <div class="header-actions">
-      <button class="btn btn-primary btn-sm" id="changeMediaBtn" type="button">
-        🎬 Сменить видео
-      </button>
-      <button class="btn btn-ghost btn-sm" id="inviteBtnHeader" type="button">
-        🔗 Пригласить
-      </button>
-      <button class="btn btn-ghost btn-sm" id="peersBtnHeader" type="button">
-        👥 <span id="peersCountHeader">0</span>
-      </button>
-    </div>
-  </header>
-
-  <!-- ════════════════════════════════════════════════════════
-       ОСНОВНАЯ ОБЛАСТЬ: ПЛЕЕР СВЕРХУ + ЧАТ СНИЗУ
-       ════════════════════════════════════════════════════════ -->
-  <main class="app-main">
-
-    <!-- ── ПЛЕЕР ─────────────────────────────────────────── -->
-    <section class="player-section" id="playerSection">
-
-      <!-- Заглушка «ничего не выбрано» -->
-      <div class="player-placeholder" id="placeholder">
-        <div class="placeholder-icon">🎥</div>
-        <div class="placeholder-title">Начнём смотреть вместе?</div>
-        <div class="placeholder-sub">
-          Нажмите «Сменить видео» и вставьте ссылку.<br>
-          Всё, что вы запускаете, синхронно увидит ваш собеседник.
+        <!-- Индикатор подключения -->
+        <div class="conn-status" id="connStatus">
+          <span class="conn-dot" id="connDot"></span>
+          <span id="connText">Подключение…</span>
         </div>
       </div>
 
-      <!-- Контейнер под YouTube (создаётся API динамически) -->
-      <div id="ytPlayerHost" class="player-shell hidden"></div>
-
-      <!-- Контейнер под HTML5 video / HLS -->
-      <div id="videoHost" class="player-shell hidden">
-        <video
-          id="nativeVideo"
-          class="native-video"
-          controls
-          playsinline
-          preload="auto"
-        ></video>
+      <!-- Компактная строка: кнопка «Сменить видео» + пригласить -->
+      <div class="header-actions">
+        <button class="btn btn-primary btn-sm" id="changeMediaBtn" type="button">
+          🎬 Сменить видео
+        </button>
+        <button class="btn btn-ghost btn-sm" id="inviteBtnHeader" type="button">
+          🔗 Пригласить
+        </button>
+        <button class="btn btn-ghost btn-sm" id="peersBtnHeader" type="button">
+          👥 <span id="peersCountHeader">0</span>
+        </button>
       </div>
+    </header>
 
-      <!-- Контейнер под произвольный iframe (VK Video, vk.com, etc.) -->
-      <div id="iframeHost" class="player-shell hidden">
-        <iframe
-          id="embedFrame"
-          class="embed-frame"
-          src="about:blank"
-          frameborder="0"
-          allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
-          allowfullscreen
-        ></iframe>
-      </div>
+    <!-- ════════════════════════════════════════════════════════
+         ОСНОВНАЯ ОБЛАСТЬ: ПЛЕЕР СВЕРХУ + ЧАТ СНИЗУ
+         ════════════════════════════════════════════════════════ -->
+    <main class="app-main">
 
-      <!-- Текущий статус видео -->
-      <div class="now-playing" id="nowPlaying">
-        <span class="now-playing-label">Сейчас играет:</span>
-        <span class="now-playing-title" id="nowPlayingTitle">—</span>
-      </div>
+      <!-- ── ПЛЕЕР ─────────────────────────────────────────── -->
+      <section class="player-section" id="playerSection">
 
-      <div class="diagnostic-panel" id="diagnosticPanel">
-        <div class="diagnostic-row"><span>ROOM_STATE:</span> <span id="diagRoomState">Ожидание...</span></div>
-        <div class="diagnostic-row"><span>URL:</span> <span id="diagUrl">—</span></div>
-        <div class="diagnostic-row"><span>TYPE:</span> <span id="diagType">—</span></div>
-        <div class="diagnostic-row"><span>STATUS:</span> <span id="diagStatus">—</span></div>
-      </div>
-
-    </section>
-
-    <!-- ── ЧАТ ────────────────────────────────────────────── -->
-    <section class="chat-section" id="chatSection">
-      <div class="chat-container" id="chatContainer">
-        <div class="hearts-bg"></div>
-        <div class="chat-messages" id="chatMessages">
-          <div class="chat-empty" id="chatEmpty">
-            <span>💬</span>
-            <p>Напишите что-нибудь собеседнику</p>
+        <!-- Заглушка «ничего не выбрано» -->
+        <div class="player-placeholder" id="placeholder">
+          <div class="placeholder-icon">🎥</div>
+          <div class="placeholder-title">Начнём смотреть вместе?</div>
+          <div class="placeholder-sub">
+            Нажмите «Сменить видео» и вставьте ссылку.<br>
+            Всё, что вы запускаете, синхронно увидит ваш собеседник.
           </div>
         </div>
+
+        <!-- Контейнер под YouTube (создаётся API динамически) -->
+        <div id="ytPlayerHost" class="player-shell hidden"></div>
+
+        <!-- Контейнер под HTML5 video / HLS -->
+        <div id="videoHost" class="player-shell hidden">
+          <video
+            id="nativeVideo"
+            class="native-video"
+            controls
+            playsinline
+            preload="auto"
+          ></video>
+        </div>
+
+        <!-- Контейнер под произвольный iframe (VK Video, vk.com, etc.) -->
+        <div id="iframeHost" class="player-shell hidden">
+          <iframe
+            id="embedFrame"
+            class="embed-frame"
+            src="about:blank"
+            frameborder="0"
+            allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
+            allowfullscreen
+          ></iframe>
+        </div>
+
+        <!-- Текущий статус видео -->
+        <div class="now-playing" id="nowPlaying">
+          <span class="now-playing-label">Сейчас играет:</span>
+          <span class="now-playing-title" id="nowPlayingTitle">—</span>
+        </div>
+
+        <div class="diagnostic-panel" id="diagnosticPanel">
+          <div class="diagnostic-row"><span>ROOM_STATE:</span> <span id="diagRoomState">Ожидание...</span></div>
+          <div class="diagnostic-row"><span>URL:</span> <span id="diagUrl">—</span></div>
+          <div class="diagnostic-row"><span>TYPE:</span> <span id="diagType">—</span></div>
+          <div class="diagnostic-row"><span>STATUS:</span> <span id="diagStatus">—</span></div>
+        </div>
+
+      </section>
+
+      <!-- ── ЧАТ ────────────────────────────────────────────── -->
+      <section class="chat-section" id="chatSection">
+        <div class="chat-container" id="chatContainer">
+          <div class="hearts-bg"></div>
+          <div class="chat-messages" id="chatMessages">
+            <div class="chat-empty" id="chatEmpty">
+              <span>💬</span>
+              <p>Напишите что-нибудь собеседнику</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="chat-input-wrapper">
+          <div id="reply-preview" style="display: none;">
+            <span>Ответ для <b id="reply-user"></b>:</span>
+            <span id="reply-text"></span>
+            <button id="cancel-reply" type="button">✕</button>
+          </div>
+          <div class="chat-input-row">
+            <input
+              type="text"
+              id="chatInput"
+              class="chat-input"
+              placeholder="Сообщение…"
+              autocomplete="off"
+              maxlength="500"
+            >
+            <button class="btn btn-primary btn-sm" id="chatSendBtn" type="button">➤</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- ════════════════════════════════════════════════════════
+         БОКОВАЯ ПАНЕЛЬ «СМЕНИТЬ ВИДЕО»
+         ════════════════════════════════════════════════════════ -->
+    <aside class="media-drawer" id="mediaDrawer" aria-hidden="true">
+      <div class="drawer-header">
+        <span class="drawer-title">🎬 Сменить видео</span>
+        <button class="drawer-close" id="drawerCloseBtn" type="button">✕</button>
       </div>
 
-      <div class="chat-input-wrapper">
-        <div id="reply-preview" style="display: none;">
-          <span>Ответ для <b id="reply-user"></b>:</span>
-          <span id="reply-text"></span>
-          <button id="cancel-reply" type="button">✕</button>
-        </div>
-        <div class="chat-input-row">
+      <div class="drawer-body">
+        <!-- Поле ввода URL -->
+        <div class="url-row">
           <input
             type="text"
-            id="chatInput"
-            class="chat-input"
-            placeholder="Сообщение…"
+            id="urlInput"
+            class="url-input"
+            placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8, VK Video…"
             autocomplete="off"
-            maxlength="500"
+            autocapitalize="none"
+            spellcheck="false"
+            enterkeyhint="go"
           >
-          <button class="btn btn-primary btn-sm" id="chatSendBtn" type="button">➤</button>
+          <button class="btn btn-primary" id="loadBtn" type="button">▶</button>
+        </div>
+
+        <!-- Быстрые пресеты источников -->
+        <div class="preset-row" id="presetRow">
+          <button class="preset-btn" data-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" type="button">
+            🎬 YouTube
+          </button>
+          <button class="preset-btn" data-url="https://vkvideo.ru/video-225853289_456239017" type="button">
+            🎥 VK Video
+          </button>
+          <button class="preset-btn" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" type="button">
+            📡 MP4 / HLS
+          </button>
+        </div>
+
+        <!-- Подключение по коду комнаты -->
+        <div class="drawer-divider">Подключиться по коду</div>
+        <div class="join-row">
+          <input
+            type="text"
+            id="joinCodeInput"
+            class="url-input"
+            placeholder="Введите код комнаты (r_...)"
+            autocomplete="off"
+            autocapitalize="none"
+            spellcheck="false"
+          >
+          <button class="btn btn-primary" id="joinCodeBtn" type="button">Войти</button>
+        </div>
+        <div class="join-hint" id="joinHint">Ваш код: <b id="myRoomCode">—</b></div>
+
+        <!-- Роль в комнате -->
+        <div class="drawer-divider">Роль</div>
+        <div class="drawer-peer" id="hostLabel">👤 Вы гость</div>
+
+        <!-- Анимация сердечек -->
+        <div class="drawer-divider">Анимация</div>
+        <div class="drawer-peer">
+          <label class="toggle-switch">
+            <input type="checkbox" id="heartsToggle" checked class="toggle-checkbox">
+            <span class="toggle-slider"></span>
+            <span>Сердечки в чате</span>
+          </label>
+        </div>
+
+        <!-- Очередь видео -->
+        <div class="drawer-divider">Очередь</div>
+        <div class="queue-list" id="queueList">
+          <div class="queue-empty">Очередь пуста</div>
+        </div>
+
+        <div class="drawer-divider">Сейчас в комнате</div>
+        <div class="drawer-peers" id="drawerPeers">
+          <div class="drawer-peer">🎬 Вы</div>
         </div>
       </div>
-    </section>
+    </aside>
 
-  </main>
+    <!-- Оверлей для закрытия панели -->
+    <div class="drawer-overlay hidden" id="drawerOverlay"></div>
+
+    <!-- Индикатор загрузки (вместо чёрного экрана) -->
+    <div class="loading-overlay hidden" id="loadingOverlay">
+      <div class="spinner"></div>
+      <div class="loading-text" id="loadingText">Загрузка видео…</div>
+    </div>
+
+  </div>
 
   <!-- ════════════════════════════════════════════════════════
-       БОКОВАЯ ПАНЕЛЬ «СМЕНИТЬ ВИДЕО»
+       ТАБЫ (отображаются, когда экран комнаты скрыт)
        ════════════════════════════════════════════════════════ -->
-  <aside class="media-drawer" id="mediaDrawer" aria-hidden="true">
-    <div class="drawer-header">
-      <span class="drawer-title">🎬 Сменить видео</span>
-      <button class="drawer-close" id="drawerCloseBtn" type="button">✕</button>
-    </div>
-
-    <div class="drawer-body">
-      <!-- Поле ввода URL -->
-      <div class="url-row">
-        <input
-          type="text"
-          id="urlInput"
-          class="url-input"
-          placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8, VK Video…"
-          autocomplete="off"
-          autocapitalize="none"
-          spellcheck="false"
-          enterkeyhint="go"
-        >
-        <button class="btn btn-primary" id="loadBtn" type="button">▶</button>
+  <div class="tab-views">
+    <div id="rooms-tab" class="tab-content">
+      <div class="tab-header">
+        <h3>Комнаты</h3>
+        <button class="btn btn-ghost btn-sm" id="refreshRoomsBtn" type="button">🔄 Обновить</button>
       </div>
-
-      <!-- Быстрые пресеты источников -->
-      <div class="preset-row" id="presetRow">
-        <button class="preset-btn" data-url="https://www.youtube.com/watch?v=dQw4w9WgXcQ" type="button">
-          🎬 YouTube
-        </button>
-        <button class="preset-btn" data-url="https://vkvideo.ru/video-225853289_456239017" type="button">
-          🎥 VK Video
-        </button>
-        <button class="preset-btn" data-url="https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8" type="button">
-          📡 MP4 / HLS
-        </button>
-      </div>
-
-      <!-- Подключение по коду комнаты -->
-      <div class="drawer-divider">Подключиться по коду</div>
-      <div class="join-row">
-        <input
-          type="text"
-          id="joinCodeInput"
-          class="url-input"
-          placeholder="Введите код комнаты (r_...)"
-          autocomplete="off"
-          autocapitalize="none"
-          spellcheck="false"
-        >
-        <button class="btn btn-primary" id="joinCodeBtn" type="button">Войти</button>
-      </div>
-      <div class="join-hint" id="joinHint">Ваш код: <b id="myRoomCode">—</b></div>
-
-      <!-- Роль в комнате -->
-      <div class="drawer-divider">Роль</div>
-      <div class="drawer-peer" id="hostLabel">👤 Вы гость</div>
-
-      <!-- Анимация сердечек -->
-      <div class="drawer-divider">Анимация</div>
-      <div class="drawer-peer">
-        <label class="toggle-switch">
-          <input type="checkbox" id="heartsToggle" checked class="toggle-checkbox">
-          <span class="toggle-slider"></span>
-          <span>Сердечки в чате</span>
-        </label>
-      </div>
-
-      <!-- Очередь видео -->
-      <div class="drawer-divider">Очередь</div>
-      <div class="queue-list" id="queueList">
-        <div class="queue-empty">Очередь пуста</div>
-      </div>
-
-      <div class="drawer-divider">Сейчас в комнате</div>
-      <div class="drawer-peers" id="drawerPeers">
-        <div class="drawer-peer">🎬 Вы</div>
+      <div class="tab-body">
+        <div class="room-list" id="roomList">
+          <div class="room-item" data-room="main_room">
+            <span class="room-item-icon">🎬</span>
+            <div class="room-item-info">
+              <span class="room-item-name">main_room</span>
+              <span class="room-item-sub">Комната по умолчанию</span>
+            </div>
+            <button class="btn btn-primary btn-sm room-join" data-room="main_room" type="button">Войти</button>
+          </div>
+          <div class="room-empty" id="roomsEmpty">Нет доступных комнат</div>
+        </div>
       </div>
     </div>
-  </aside>
 
-  <!-- Оверлей для закрытия панели -->
-  <div class="drawer-overlay hidden" id="drawerOverlay"></div>
+    <div id="create-tab" class="tab-content">
+      <div class="tab-header">
+        <h3>Создать комнату</h3>
+      </div>
+      <div class="tab-body">
+        <div class="drawer-divider">Название комнаты</div>
+        <div class="create-input-row">
+          <input type="text" id="createRoomName" class="url-input" placeholder="Моя комната" autocomplete="off">
+        </div>
+        <div class="drawer-divider">Ссылка на видео</div>
+        <div class="create-input-row">
+          <input type="text" id="createRoomUrl" class="url-input" placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8…" autocomplete="off">
+        </div>
+        <div class="drawer-divider">Приватность</div>
+        <div class="create-input-row">
+          <label class="toggle-switch">
+            <input type="checkbox" id="createRoomPrivate" class="toggle-checkbox">
+            <span class="toggle-slider"></span>
+            <span>Приватная комната</span>
+          </label>
+        </div>
+        <div class="create-input-row">
+          <button class="btn btn-primary" id="createRoomBtn" type="button">🚀 Создать комнату</button>
+        </div>
+      </div>
+    </div>
 
-  <!-- Индикатор загрузки (вместо чёрного экрана) -->
-  <div class="loading-overlay hidden" id="loadingOverlay">
-    <div class="spinner"></div>
-    <div class="loading-text" id="loadingText">Загрузка видео…</div>
+    <div id="friends-tab" class="tab-content">
+      <div class="tab-header">
+        <h3>Друзья</h3>
+      </div>
+      <div class="tab-body">
+        <div class="create-input-row">
+          <input type="text" id="friendSearchInput" class="url-input" placeholder="Поиск по @username…" autocomplete="off">
+        </div>
+        <div class="drawer-divider">Друзья онлайн</div>
+        <div class="drawer-peers" id="friendsList">
+          <div class="drawer-peer">🎬 Вы</div>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ════════════════════════════════════════════════════════
@@ -258,71 +332,6 @@
       <span class="nav-label">Друзья</span>
     </button>
   </nav>
-
-  <!-- ════════════════════════════════════════════════════════
-       ТАБЫ
-       ════════════════════════════════════════════════════════ -->
-  <div id="rooms-tab" class="tab-content">
-    <div class="tab-header">
-      <h3>Комнаты</h3>
-      <button class="btn btn-ghost btn-sm" id="refreshRoomsBtn" type="button">🔄 Обновить</button>
-    </div>
-    <div class="tab-body">
-      <div class="room-list" id="roomList">
-        <div class="room-item" data-room="main_room">
-          <span class="room-item-icon">🎬</span>
-          <div class="room-item-info">
-            <span class="room-item-name">main_room</span>
-            <span class="room-item-sub">Комната по умолчанию</span>
-          </div>
-          <button class="btn btn-primary btn-sm room-join" data-room="main_room" type="button">Войти</button>
-        </div>
-        <div class="room-empty" id="roomsEmpty">Нет доступных комнат</div>
-      </div>
-    </div>
-  </div>
-
-  <div id="create-tab" class="tab-content" style="display:none;">
-    <div class="tab-header">
-      <h3>Создать комнату</h3>
-    </div>
-    <div class="tab-body">
-      <div class="drawer-divider">Название комнаты</div>
-      <div class="create-input-row">
-        <input type="text" id="createRoomName" class="url-input" placeholder="Моя комната" autocomplete="off">
-      </div>
-      <div class="drawer-divider">Ссылка на видео</div>
-      <div class="create-input-row">
-        <input type="text" id="createRoomUrl" class="url-input" placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8…" autocomplete="off">
-      </div>
-      <div class="drawer-divider">Приватность</div>
-      <div class="create-input-row">
-        <label class="toggle-switch">
-          <input type="checkbox" id="createRoomPrivate" class="toggle-checkbox">
-          <span class="toggle-slider"></span>
-          <span>Приватная комната</span>
-        </label>
-      </div>
-      <div class="create-input-row">
-        <button class="btn btn-primary" id="createRoomBtn" type="button">🚀 Создать комнату</button>
-      </div>
-    </div>
-  </div>
-
-  <div id="friends-tab" class="tab-content" style="display:none;">
-    <div class="tab-header">
-      <h3>Друзья</h3>
-    </div>
-    <div class="tab-body">
-      <div class="create-input-row">
-        <input type="text" id="friendSearchInput" class="url-input" placeholder="Поиск по @username…" autocomplete="off">
-      </div>
-      <div class="drawer-divider">Друзья онлайн</div>
-      <div class="drawer-peers" id="friendsList">
-        <div class="drawer-peer">🎬 Вы</div>
-      </div>
-    </div>
-  </div>
 
   <!-- Скрипт приложения -->
   <script src="app.js"></script>

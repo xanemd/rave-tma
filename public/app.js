@@ -129,6 +129,9 @@ const els = {
   // Индикатор загрузки
   loadingOverlay: $('#loadingOverlay'),
   loadingText: $('#loadingText'),
+
+  // Экран комнаты
+  roomViewScreen: $('#roomViewScreen'),
 };
 
 let snackbarEl = null;
@@ -1458,6 +1461,16 @@ function updateConnUI(connected) {
     : 'Нет соединения';
 }
 
+function showRoomView() {
+  const el = els.roomViewScreen;
+  if (el) el.classList.remove('hidden');
+}
+
+function hideRoomView() {
+  const el = els.roomViewScreen;
+  if (el) el.classList.add('hidden');
+}
+
 function showLoading(text) {
   if (els.loadingOverlay) {
     if (text && els.loadingText) els.loadingText.textContent = text;
@@ -1586,7 +1599,7 @@ function addChatMessage(msg, mine = false) {
   // Реакции
   let reactionsHtml = '';
   if (state.reactions[msg.id] && Object.keys(state.reactions[msg.id]).length > 0) {
-    reactionsHtml = '<div class="message-reactions">';
+    reactionsHtml = '<div class="message-reactions-container">';
     for (const [emoji, users] of Object.entries(state.reactions[msg.id])) {
       if (users.length > 0) {
         reactionsHtml += `<span class="reaction-item">${emoji} <span class="reaction-count">${users.length}</span></span>`;
@@ -1599,8 +1612,8 @@ function addChatMessage(msg, mine = false) {
     <span class="message-sender">${isMine ? 'Вы' : sender}</span>
     ${replyHtml}
     <span class="message-text">${escapeHtml(msg.text)}</span>
-    ${reactionsHtml}
     <span class="message-time">${time}</span>
+    ${reactionsHtml}
   `;
 
   // Добавляем обработчики свайпа и долгого нажатия
@@ -1884,7 +1897,7 @@ function renderMessageReactions(messageId) {
   if (!msgEl) return;
 
   // Remove existing reactions container
-  const existingReactions = msgEl.querySelector('.message-reactions');
+  const existingReactions = msgEl.querySelector('.message-reactions-container');
   if (existingReactions) {
     existingReactions.remove();
   }
@@ -1892,7 +1905,7 @@ function renderMessageReactions(messageId) {
   // Add updated reactions
   if (state.reactions[messageId] && Object.keys(state.reactions[messageId]).length > 0) {
     const reactionsContainer = document.createElement('div');
-    reactionsContainer.className = 'message-reactions';
+    reactionsContainer.className = 'message-reactions-container';
     
     for (const [emoji, users] of Object.entries(state.reactions[messageId])) {
       if (users.length > 0) {
@@ -2049,6 +2062,7 @@ function joinRoomByCode() {
   }
   connectSocket();
 
+  showRoomView();
   showSnack('🔑 Подключено к комнате: ' + roomId);
   closeDrawer();
 }
@@ -2060,13 +2074,16 @@ function bindUI() {
       const tabId = item.dataset.tab;
       if (!tabId) return;
 
+      // Скрываем экран комнаты при переключении вкладок
+      hideRoomView();
+
       // Переключаем активный класс
       document.querySelectorAll('.nav-item').forEach((i) => i.classList.remove('active'));
       item.classList.add('active');
 
       // Показываем/скрываем вкладки
       document.querySelectorAll('.tab-content').forEach((tab) => {
-        tab.style.display = tab.id === tabId ? 'block' : 'none';
+        tab.style.display = tab.id === tabId ? 'flex' : 'none';
       });
 
       // Haptic feedback при смене вкладки
@@ -2102,6 +2119,7 @@ function bindUI() {
         setTimeout(() => loadMedia(url), 500);
       }
 
+      showRoomView();
       showSnack('🚀 Комната создана: ' + newRoomId);
     });
   }
@@ -2121,6 +2139,8 @@ function bindUI() {
         state.socket = null;
       }
       connectSocket();
+
+      showRoomView();
       showSnack('🔑 Вошли в комнату: ' + roomId);
     });
   });

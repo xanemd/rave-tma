@@ -426,6 +426,8 @@ input {
   box-shadow: 0 1px 2px rgba(0,0,0,0.2);
   transition: transform 0.2s ease;
   touch-action: pan-y;
+  display: flex;
+  flex-direction: column;
 }
 
 /* FIX 3: Цитата ответа как в Telegram */
@@ -522,23 +524,27 @@ input {
 }
 
 /* Контейнер реакций на сообщении */
-.message-reactions {
+.message-reactions-container {
+  position: static;
   display: inline-flex;
-  gap: 4px;
-  background: rgba(23, 33, 43, 0.8);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  align-items: center;
+  gap: 3px;
+  background: rgba(30, 44, 58, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 12px;
   padding: 2px 6px;
   font-size: 11px;
   margin-top: 4px;
+  width: fit-content;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
 }
 
-.message-bubble.outgoing .message-reactions {
-  float: right;
+.message-bubble.incoming .message-reactions-container {
+  align-self: flex-start;
 }
 
-.message-bubble.incoming .message-reactions {
-  float: left;
+.message-bubble.outgoing .message-reactions-container {
+  align-self: flex-end;
 }
 
 .reaction-item {
@@ -1069,8 +1075,47 @@ input {
 }
 
 /* Учитываем отступ снизу под меню для контента вкладок */
+.tab-views {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
 .tab-content {
+  display: none;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.tab-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 16px;
   padding-bottom: 70px;
+}
+
+#rooms-tab {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ЭКРАН КОМНАТЫ (overlay поверх вкладок)
+   ═══════════════════════════════════════════════════════════ */
+.room-view-screen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--tg-bg);
 }
 
 .tab-header {
@@ -1088,6 +1133,7 @@ input {
 
 .tab-body {
   padding: 0 16px;
+  padding-bottom: 70px;
 }
 
 .room-list {
