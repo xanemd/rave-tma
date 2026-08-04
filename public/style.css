@@ -247,6 +247,7 @@ input {
   justify-content: center;
   color: #fff;
   font-size: 14px;
+  pointer-events: none;
 }
 
 .player-placeholder {

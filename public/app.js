@@ -1520,8 +1520,6 @@ function renderRoomVideo(videoUrl) {
 
   document.querySelectorAll('.player-shell').forEach((s) => s.classList.add('hidden'));
 
-  if (loader) loader.style.display = 'flex';
-
   const youtubeId = extractYouTubeId(videoUrl);
 
   if (youtubeId) {
@@ -1532,29 +1530,19 @@ function renderRoomVideo(videoUrl) {
         src="https://www.youtube.com/embed/${youtubeId}?autoplay=1&muted=1&playsinline=1&controls=1&enablejsapi=1&origin=${origin}"
         style="width: 100%; height: 100%; border: none;"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowfullscreen
-        onload="hideVideoLoader()">
+        allowfullscreen>
       </iframe>
     `;
-
-    setTimeout(() => hideVideoLoader(), 1500);
   } else {
     container.innerHTML = `
-      <video id="main-player" controls autoplay playsinline style="width:100%; height:100%; object-fit:contain;" oncanplay="hideVideoLoader()">
+      <video id="main-player" controls autoplay playsinline style="width:100%; height:100%; object-fit:contain;">
         <source src="${videoUrl}" type="video/mp4">
         Ваш браузер не поддерживает видео.
       </video>
     `;
-
-    setTimeout(() => hideVideoLoader(), 1500);
   }
-}
 
-function hideVideoLoader() {
-  const loader = document.getElementById('video-loader');
-  if (loader) {
-    loader.style.display = 'none';
-  }
+  if (loader) loader.style.display = 'none';
 }
 
 function setActiveTab(tabId) {
