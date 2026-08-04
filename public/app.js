@@ -350,6 +350,12 @@ function buildEmbedUrl(parsed) {
   return null;
 }
 
+function extractYouTubeId(url) {
+  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+  const match = url.match(regExp);
+  return (match && match[2].length === 11) ? match[2] : null;
+}
+
 /* ═══════════════════════════════════════════════════════════
    4. ОБЩИЙ ПЕРЕКЛЮЧАТЕЛЬ ПЛЕЕРОВ
    ═══════════════════════════════════════════════════════════ */
@@ -476,6 +482,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
         rel: 0,
         modestbranding: 1,
         origin: window.location.origin,
+        muted: 1,
       },
       events: {
         onReady: (event) => {
@@ -1464,11 +1471,15 @@ function updateConnUI(connected) {
 function showRoomView() {
   const el = els.roomViewScreen;
   if (el) el.classList.remove('hidden');
+  const nav = document.querySelector('.bottom-nav');
+  if (nav) nav.style.display = 'none';
 }
 
 function hideRoomView() {
   const el = els.roomViewScreen;
   if (el) el.classList.add('hidden');
+  const nav = document.querySelector('.bottom-nav');
+  if (nav) nav.style.display = 'flex';
 }
 
 function setActiveTab(tabId) {
