@@ -71,6 +71,7 @@ const state = {
   serverTimeOffsetMs: 0,
   serverPingMs: 0,
   clockSyncInterval: null,
+  syncInterval: null,
   vimeoReady: false,
   pendingSocketEvents: [],
   loadingSafetyTimer: null,
@@ -845,6 +846,7 @@ function connectSocket() {
     console.warn('[Socket] Отключено:', reason);
     setStatus('🔴 Нет соединения с сервером');
     stopClockSync();
+    stopPeriodicSync();
   });
 
   s.on('PONG', (data) => {
@@ -865,6 +867,12 @@ function connectSocket() {
     }
     updateHostUI();
     flushPendingSocketEvents();
+
+    if (state.isHost) {
+      startPeriodicSync();
+    } else {
+      stopPeriodicSync();
+    }
   });
 
   // ── Инициализация комнаты для нового участника ────────────
@@ -947,6 +955,22 @@ function connectSocket() {
     state.isHost = hostId === state.socket.id;
     updateHostUI();
     showSnack(state.isHost ? '👑 Вы теперь хост' : '👑 Хост сменился');
+
+    if (state.isHost) {
+      startPeriodicSync();
+    } else {
+      stopPeriodicSync();
+    }
+  });
+
+  // ── Периодическая синхронизация времени от хоста ─────────────
+  s.on('sync-video-client', (data) => {
+    if (state.isHost) return; // Хост не синхронизируется сам с собой
+
+    const latency = (Date.now() - data.serverTimestamp) / 1000;
+    const targetTime = data.isPaused ? data.currentTime : data.currentTime + latency;
+
+    applyVideoSync(targetTime, data.isPaused);
   });
 
   // ── Очередь обновлена ──────────────────────────────────────
@@ -1406,6 +1430,66 @@ function syncYouTubeTime(desired) {
       state.ytPlayer.seekTo(desired, true);
     }
   } catch (e) { /* ignore */ }
+}
+
+function getActivePlayer() {
+  if (state.ytPlayer && state.ytPlayerReady) {
+    return state.ytPlayer;
+  }
+  if (els.nativeVideo && els.nativeVideo.readyState >= 1) {
+    return els.nativeVideo;
+  }
+  return null;
+}
+
+function applyVideoSync(targetTime, isPaused) {
+  const player = getActivePlayer();
+  if (!player) return;
+
+  const currentTime = player.getCurrentTime ? player.getCurrentTime() : player.currentTime;
+  const timeDiff = Math.abs(currentTime - targetTime);
+
+  if (isPaused) {
+    if (player.pauseVideo) player.pauseVideo();
+    else player.pause();
+  } else {
+    if (player.playVideo) {
+      const state = player.getPlayerState();
+      if (state !== 1) player.playVideo();
+    } else if (player.play) {
+      player.play().catch(() => {});
+    }
+  }
+
+  if (timeDiff > 1.0) {
+    console.log(`[Sync] Корректировка рассинхрона: ${timeDiff.toFixed(2)}сек.`);
+    if (player.seekTo) {
+      player.seekTo(targetTime, true);
+    } else {
+      player.currentTime = targetTime;
+    }
+  }
+}
+
+function startPeriodicSync() {
+  stopPeriodicSync();
+  state.syncInterval = setInterval(() => {
+    if (!state.isHost || !state.socket || !state.connected) return;
+    if (!state.currentUrl) return;
+
+    const currentTime = getCurrentPlayhead();
+    state.socket.emit('sync-video', {
+      currentTime,
+      isPaused: !state.isPlaying,
+    });
+  }, 4000);
+}
+
+function stopPeriodicSync() {
+  if (state.syncInterval) {
+    clearInterval(state.syncInterval);
+    state.syncInterval = null;
+  }
 }
 
 // В server-authoritative архитектуре (как в Rave) таймеры не нужны:

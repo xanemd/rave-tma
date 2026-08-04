@@ -246,6 +246,34 @@ io.on('connection', (socket) => {
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
+  // ── Периодическая синхронизация времени от хоста ─────────────
+  socket.on('sync-video', (data) => {
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может отправлять синхронизацию' });
+      return;
+    }
+
+    const currentTime = typeof data.currentTime === 'number' ? data.currentTime : getCurrentPosition(room);
+    const isPaused = typeof data.isPaused === 'boolean' ? data.isPaused : !room.isPlaying;
+
+    // Обновляем состояние комнаты на сервере
+    room.position = currentTime;
+    if (!isPaused && !room.isPlaying) {
+      room.isPlaying = true;
+      room.startedAt = Date.now();
+    } else if (isPaused && room.isPlaying) {
+      room.isPlaying = false;
+      room.startedAt = 0;
+    }
+
+    // Рассылаем всем клиентам с серверным timestamp для компенсации задержки
+    io.to(roomId).emit('sync-video-client', {
+      currentTime,
+      isPaused,
+      serverTimestamp: Date.now(),
+    });
+  });
+
   // ── Очередь видео ──────────────────────────────────────────
   socket.on('ADD_TO_QUEUE', (data) => {
     if (socket.id !== room.hostId) {
