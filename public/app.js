@@ -73,6 +73,7 @@ const state = {
   clockSyncInterval: null,
   vimeoReady: false,
   pendingSocketEvents: [],
+  loadingSafetyTimer: null,
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -475,6 +476,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
   if (!state.ytReady) {
     state.pendingYouTubeVideoId = videoId;
     setStatus('⏳ YouTube API загружается…');
+    hideLoading();
     return;
   }
 
@@ -499,6 +501,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
         onReady: (event) => {
           console.log('[YouTube] Плеер готов');
           state.ytPlayerReady = true;
+          if (state.loadingSafetyTimer) { clearTimeout(state.loadingSafetyTimer); state.loadingSafetyTimer = null; }
           hideLoading();
           if (autoplay) {
             try { event.target.playVideo(); } catch (e) { /* ignore */ }
@@ -520,6 +523,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
           console.error('[YouTube] Ошибка:', event.data);
           setStatus('⚠️ Ошибка YouTube-плеера (код ' + event.data + ')');
           showSnack('❌ Не удалось воспроизвести YouTube-видео');
+          if (state.loadingSafetyTimer) { clearTimeout(state.loadingSafetyTimer); state.loadingSafetyTimer = null; }
           hideLoading();
           // Сбрасываем currentUrl, чтобы не оставаться в состоянии «URL есть, плеер сломан»
           state.currentUrl = '';
@@ -541,6 +545,7 @@ function handleVimeoPostMessage(event) {
   switch (data.event) {
     case 'ready':
       state.vimeoReady = true;
+      if (state.loadingSafetyTimer) { clearTimeout(state.loadingSafetyTimer); state.loadingSafetyTimer = null; }
       hideLoading();
       setStatus('🎬 Vimeo плеер готов');
       break;
@@ -739,6 +744,12 @@ function loadMedia(rawUrl, opts = {}) {
 
   resetPlayers(true);
   showLoading('Загрузка видео…');
+
+  if (state.loadingSafetyTimer) clearTimeout(state.loadingSafetyTimer);
+  state.loadingSafetyTimer = setTimeout(() => {
+    hideLoading();
+    state.loadingSafetyTimer = null;
+  }, 10000);
 
   switch (parsed.type) {
     case SOURCE_TYPES.YOUTUBE:
@@ -1519,6 +1530,10 @@ function showLoading(text) {
 function hideLoading() {
   if (els.loadingOverlay) {
     els.loadingOverlay.classList.add('hidden');
+  }
+  if (state.loadingSafetyTimer) {
+    clearTimeout(state.loadingSafetyTimer);
+    state.loadingSafetyTimer = null;
   }
 }
 
