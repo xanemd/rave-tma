@@ -73,7 +73,6 @@ const state = {
   clockSyncInterval: null,
   vimeoReady: false,
   pendingSocketEvents: [],
-  pendingRoomMedia: null,
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -349,12 +348,6 @@ function buildEmbedUrl(parsed) {
   }
 
   return null;
-}
-
-function extractYouTubeId(url) {
-  const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
-  const match = url.match(regExp);
-  return (match && match[2].length === 11) ? match[2] : null;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -899,16 +892,14 @@ function connectSocket() {
     }
 
     if (roomUrl) {
-      state.currentUrl = roomUrl;
-      state.pendingRoomMedia = {
-        url: roomUrl,
-        type: state.currentType,
-        time: roomTime,
-        autoplay: roomPlaying,
-      };
-
-      if (isRoomViewVisible()) {
-        renderRoomVideo(roomUrl);
+      if (roomUrl !== state.currentUrl) {
+        handleRemoteMedia({
+          mediaType: state.currentType,
+          url: roomUrl,
+          time: roomTime,
+          autoplay: roomPlaying,
+        });
+      } else if (state.currentUrl === roomUrl) {
         if (roomPlaying) {
           handleRemotePlay({
             mediaType: state.currentType,
@@ -924,8 +915,6 @@ function connectSocket() {
         }
       }
     } else if (state.currentUrl) {
-      state.currentUrl = '';
-      state.pendingRoomMedia = null;
       resetPlayers();
     }
 
@@ -1493,13 +1482,6 @@ function showRoomView() {
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'none';
   hideLoading();
-
-  if (state.pendingRoomMedia) {
-    const { url } = state.pendingRoomMedia;
-    state.pendingRoomMedia = null;
-    state.currentUrl = url;
-    renderRoomVideo(url);
-  }
 }
 
 function hideRoomView() {
@@ -1507,44 +1489,6 @@ function hideRoomView() {
   if (el) el.classList.add('hidden');
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'flex';
-}
-
-function isRoomViewVisible() {
-  const el = els.roomViewScreen;
-  return el && !el.classList.contains('hidden');
-}
-
-function renderRoomVideo(videoUrl) {
-  const container = document.getElementById('player-container');
-  if (!container || !videoUrl) return;
-
-  document.querySelectorAll('.player-shell').forEach((s) => s.classList.add('hidden'));
-  hideLoading();
-
-  const youtubeId = extractYouTubeId(videoUrl);
-
-  if (youtubeId) {
-    const origin = encodeURIComponent(window.location.origin);
-    container.innerHTML = `
-      <iframe
-        id="yt-player-iframe"
-        src="https://www.youtube.com/embed/${youtubeId}?autoplay=1&muted=1&playsinline=1&controls=1&enablejsapi=1&origin=${origin}"
-        style="width: 100%; height: 100%; border: none;"
-        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-        allowfullscreen>
-      </iframe>
-    `;
-  } else {
-    container.innerHTML = `
-      <video id="main-player" controls autoplay playsinline style="width:100%; height:100%; object-fit:contain;">
-        <source src="${videoUrl}" type="video/mp4">
-        Ваш браузер не поддерживает видео.
-      </video>
-    `;
-  }
-
-  const loader = document.getElementById('video-loader');
-  if (loader) loader.style.display = 'none';
 }
 
 function setActiveTab(tabId) {
