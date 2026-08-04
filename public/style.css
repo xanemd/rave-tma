@@ -358,7 +358,8 @@ input {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background-color: #0e1621;
+  /* Прозрачный фон — сердечки видны сквозь него */
+  background: transparent;
 }
 
 /* Фон с сердечками строго внутри чата */
