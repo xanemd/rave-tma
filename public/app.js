@@ -2231,7 +2231,6 @@ function bindUI() {
   const createRoomBtn = document.getElementById('createRoomBtn');
   if (createRoomBtn) {
     createRoomBtn.addEventListener('click', () => {
-      const name = (document.getElementById('createRoomName')?.value || '').trim();
       const url = (document.getElementById('createRoomUrl')?.value || '').trim();
 
       const newRoomId = generateRoomId();
