@@ -60,6 +60,7 @@ const DEFAULT_ROOM = 'main_room';
 //   queue: [],            // очередь видео [{url, type}]
 //   viewers: 0,
 //   messages: [],         // история чата
+//   reactions: {},        // реакции на сообщения { messageId: { emoji: [userIds] } }
 //   createdAt: Date.now()
 // }
 const rooms = new Map();
@@ -76,6 +77,7 @@ function getRoom(roomId) {
       queue: [],
       viewers: 0,
       messages: [],
+      reactions: {},
       createdAt: Date.now(),
     });
   }
@@ -139,7 +141,6 @@ io.on('connection', (socket) => {
   });
 
   // Отдаём новичку полное состояние комнаты
-  // (init-room-state — надёжный способ инициализации плеера у нового участника)
   socket.emit('init-room-state', {
     currentUrl: room.currentUrl,
     currentType: room.currentType,
@@ -154,6 +155,11 @@ io.on('connection', (socket) => {
   // Отдаём историю чата
   if (room.messages.length > 0) {
     socket.emit('CHAT_HISTORY', { messages: room.messages.slice(-50) });
+  }
+
+  // Отдаём все реакции
+  if (Object.keys(room.reactions).length > 0) {
+    socket.emit('ALL_REACTIONS', { reactions: room.reactions });
   }
 
   // Сообщаем остальным, что новый участник зашёл
@@ -180,7 +186,6 @@ io.on('connection', (socket) => {
     room.startedAt = Date.now();
 
     console.log(`▶  PLAY   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
@@ -198,7 +203,6 @@ io.on('connection', (socket) => {
     room.startedAt = 0;
 
     console.log(`⏸  PAUSE  | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
@@ -217,7 +221,6 @@ io.on('connection', (socket) => {
     }
 
     console.log(`⏩ SEEK   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
@@ -240,7 +243,6 @@ io.on('connection', (socket) => {
     room.startedAt = Date.now();
 
     console.log(`🎬 MEDIA  | ${socket.id} | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
-    // В server-authoritative архитектуре (как в Rave) отправляем только ROOM_STATE
     io.to(roomId).emit('ROOM_STATE', getRoomState(room));
   });
 
@@ -307,6 +309,7 @@ io.on('connection', (socket) => {
   });
 
   // ── Реакции на сообщения ───────────────────────────────────
+  // FIX 1: Синхронизация реакций через Socket.io
   socket.on('send-message-reaction', (data) => {
     const messageId = String(data?.messageId || '');
     const emoji = String(data?.emoji || '');
@@ -332,9 +335,11 @@ io.on('connection', (socket) => {
       room.reactions[messageId][emojiKey].push(socket.id);
     }
 
-    // Отправляем обновлённые реакции всем в комнате
-    io.to(roomId).emit('MESSAGE_REACTIONS', {
+    // Отправляем обновлённые реакции ВСЕМ в комнате, включая отправителя
+    io.to(roomId).emit('message-reaction-updated', {
       messageId,
+      emoji,
+      userId: socket.id,
       reactions: room.reactions[messageId],
     });
   });
@@ -419,6 +424,8 @@ function normalizeChat(data, socketId) {
     sender: String(data.sender || 'Гость').slice(0, 64),
     socketId,
     time: Date.now(),
+    replyToId: data.replyToId ? String(data.replyToId).slice(0, 100) : null,
+    replyToText: data.replyToText ? String(data.replyToText).slice(0, 200) : null,
   };
 }
 

@@ -986,10 +986,23 @@ function connectSocket() {
   });
 
   // ── Реакции на сообщения ───────────────────────────────────
-  s.on('MESSAGE_REACTIONS', ({ messageId, reactions }) => {
-    console.log('[Reactions] ←', messageId, reactions);
+  // FIX 1: Синхронизация реакций через Socket.io
+  s.on('message-reaction-updated', ({ messageId, emoji, userId, reactions }) => {
+    console.log('[Reactions] ←', messageId, emoji, userId);
     state.reactions[messageId] = reactions || {};
-    renderMessageReactions(messageId);
+    updateMessageReactionDOM(messageId, emoji, userId);
+  });
+
+  // Получаем все реакции при подключении
+  s.on('ALL_REACTIONS', ({ reactions }) => {
+    console.log('[Reactions] ALL ←', reactions);
+    if (reactions && typeof reactions === 'object') {
+      state.reactions = reactions;
+      // Перерисовываем все сообщения с реакциями
+      Object.keys(reactions).forEach((messageId) => {
+        renderMessageReactions(messageId);
+      });
+    }
   });
 }
 
@@ -1554,10 +1567,15 @@ function addChatMessage(msg, mine = false) {
   const time = formatTime(msg.time);
   const sender = escapeHtml(msg.sender || 'Гость');
 
-  // Цитата (reply)
+  // Цитата (reply) — FIX 3: как в Telegram
   let replyHtml = '';
   if (msg.replyToId && msg.replyToText) {
-    replyHtml = `<div class="message-reply">↩ ${escapeHtml(msg.replyToText.slice(0, 50))}</div>`;
+    replyHtml = `
+      <div class="reply-quote">
+        <span class="reply-author">${escapeHtml(msg.sender || 'Гость')}</span>
+        <span class="reply-text">${escapeHtml(msg.replyToText.slice(0, 50))}</span>
+      </div>
+    `;
   }
 
   // Реакции
@@ -1591,68 +1609,86 @@ function bindMessageInteractions(el, msg) {
   let startX = 0;
   let currentX = 0;
   let isDragging = false;
+  let longPressTimer = null;
+  let longPressTriggered = false;
   const SWIPE_THRESHOLD = 50;
+  const LONG_PRESS_MS = 400;
+  const MOVE_CANCEL_THRESHOLD = 10;
 
-  // Touch events for swipe-to-reply
+  // FIX 2: Единый обработчик touchstart — конфликт Long Press vs Swipe
   el.addEventListener('touchstart', (e) => {
-    startX = e.touches[0].clientX;
+    const touch = e.touches[0];
+    startX = touch.clientX;
+    currentX = startX;
     isDragging = true;
+    longPressTriggered = false;
     el.style.transition = 'none';
+
+    // Запускаем таймер Long Press (400мс)
+    longPressTimer = setTimeout(() => {
+      // Если палец не двигался — это Long Press → реакции
+      if (isDragging && !longPressTriggered) {
+        longPressTriggered = true;
+        // Вибрация
+        if (window.Telegram?.WebApp?.HapticFeedback) {
+          window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+        }
+        // Блокируем свайп
+        isDragging = false;
+        el.style.transform = 'translateX(0)';
+        showReactionPicker(el, msg, e);
+      }
+    }, LONG_PRESS_MS);
   }, { passive: true });
 
   el.addEventListener('touchmove', (e) => {
     if (!isDragging) return;
     currentX = e.touches[0].clientX;
     const diffX = currentX - startX;
-    
-    // Only allow right swipe
+
+    // Если палец сместился больше чем на 10px — отменяем Long Press (это свайп)
+    if (Math.abs(diffX) > MOVE_CANCEL_THRESHOLD) {
+      clearTimeout(longPressTimer);
+      longPressTimer = null;
+    }
+
+    // Только свайп вправо
     if (diffX > 0 && diffX < 150) {
       el.style.transform = `translateX(${diffX}px)`;
-      
-      // Haptic feedback at threshold
+
+      // Вибрация при достижении порога свайпа
       if (diffX > SWIPE_THRESHOLD && window.Telegram?.WebApp?.HapticFeedback) {
         window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
       }
     }
   }, { passive: true });
 
-  el.addEventListener('touchend', (e) => {
+  el.addEventListener('touchend', () => {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+
     if (!isDragging) return;
     isDragging = false;
     el.style.transition = 'transform 0.2s ease';
-    
+
     const diffX = currentX - startX;
-    
+
     if (diffX > SWIPE_THRESHOLD) {
-      // Trigger reply
+      // Свайп → ответ
       el.style.transform = 'translateX(0)';
       showReplyPreview(msg);
     } else {
-      // Reset position
+      // Сброс позиции
       el.style.transform = 'translateX(0)';
     }
   });
 
-  // Long press / double tap for reactions
-  let pressTimer = null;
-  let lastTap = 0;
-
-  el.addEventListener('touchstart', (e) => {
-    const now = Date.now();
-    if (now - lastTap < 300) {
-      // Double tap
-      clearTimeout(pressTimer);
-      showReactionPicker(el, msg, e);
-    } else {
-      pressTimer = setTimeout(() => {
-        showReactionPicker(el, msg, e);
-      }, 500);
-    }
-    lastTap = now;
-  }, { passive: true });
-
-  el.addEventListener('touchend', () => {
-    clearTimeout(pressTimer);
+  el.addEventListener('touchcancel', () => {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+    isDragging = false;
+    el.style.transition = 'transform 0.2s ease';
+    el.style.transform = 'translateX(0)';
   });
 
   // Mouse events for desktop testing
@@ -1662,18 +1698,20 @@ function bindMessageInteractions(el, msg) {
 
   el.addEventListener('mousedown', (e) => {
     if (e.button === 0) { // Left click
-      pressTimer = setTimeout(() => {
+      longPressTimer = setTimeout(() => {
         showReactionPicker(el, msg, e);
-      }, 500);
+      }, LONG_PRESS_MS);
     }
   });
 
   el.addEventListener('mouseup', () => {
-    clearTimeout(pressTimer);
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
   });
 
   el.addEventListener('mouseleave', () => {
-    clearTimeout(pressTimer);
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
   });
 }
 
@@ -1711,13 +1749,16 @@ function showReactionPicker(el, msg, event) {
   const picker = document.createElement('div');
   picker.className = 'reaction-picker visible';
 
-  // Combine recent and all reactions
-  const allReactions = ['❤️', '💖', '💗', '💕', '🥰', '😍', '😘', '😻', '😸', '😽', '🐾', '🎀', '🌸', '✨', '🥺', '😂', '🔥', '👍', '👎', '😮', '😢', '💩', '🤡', '👏', '🙏'];
+  // FIX 4: Полный массив реакций
+  const ALL_REACTIONS = ['❤️', '💖', '💗', '💕', '🥰', '😍', '😘', '😻', '😸', '😽', '🐾', '🎀', '🌸', '✨', '🥺', '😂', '🔥', '👍', '👎', '😮', '😢', '💩', '🤡', '👏', '🙏'];
   const recent = state.recentReactions || [];
-  const uniqueOthers = allReactions.filter(r => !recent.includes(r));
-  const orderedEmojis = [...recent, ...uniqueOthers].slice(0, 15);
+  const uniqueOthers = ALL_REACTIONS.filter(r => !recent.includes(r));
+  const orderedEmojis = [...recent, ...uniqueOthers];
 
-  orderedEmojis.forEach(emoji => {
+  // Показываем только первые 5 + кнопка разворачивания
+  const visibleEmojis = orderedEmojis.slice(0, 5);
+
+  visibleEmojis.forEach(emoji => {
     const btn = document.createElement('button');
     btn.className = 'reaction-btn';
     btn.textContent = emoji;
@@ -1729,13 +1770,32 @@ function showReactionPicker(el, msg, event) {
     picker.appendChild(btn);
   });
 
-  // Expand button
+  // Expand button — при клике разворачиваем панель и показываем все реакции
   const expandBtn = document.createElement('button');
   expandBtn.className = 'expand-reactions-btn';
   expandBtn.textContent = '❯';
   expandBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     picker.classList.toggle('expanded');
+    
+    // Если развернули — добавляем остальные реакции
+    if (picker.classList.contains('expanded')) {
+      const existingEmojis = new Set(visibleEmojis);
+      orderedEmojis.slice(5).forEach(emoji => {
+        if (!existingEmojis.has(emoji)) {
+          const btn = document.createElement('button');
+          btn.className = 'reaction-btn';
+          btn.textContent = emoji;
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sendReaction(msg.id, emoji);
+            picker.remove();
+          });
+          picker.insertBefore(btn, expandBtn);
+          existingEmojis.add(emoji);
+        }
+      });
+    }
   });
   picker.appendChild(expandBtn);
 
@@ -1814,6 +1874,11 @@ function renderMessageReactions(messageId) {
       timeEl.insertAdjacentElement('afterend', reactionsContainer);
     }
   }
+}
+
+// FIX 1: Обновление DOM конкретного сообщения при получении реакции
+function updateMessageReactionDOM(messageId, emoji, userId) {
+  renderMessageReactions(messageId);
 }
 
 function scrollChatToBottom() {
@@ -2083,8 +2148,8 @@ function createHeart() {
   }
 }
 
-// Запускаем проверку раз в 3 секунды
-setInterval(createHeart, 3000);
+// FIX 5: Запускаем проверку раз в 2.5 секунды
+setInterval(createHeart, 2500);
 
 /* ═══════════════════════════════════════════════════════════
    19. ИНИЦИАЛИЗАЦИЯ

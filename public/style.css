@@ -426,6 +426,32 @@ input {
   touch-action: pan-y;
 }
 
+/* FIX 3: Цитата ответа как в Telegram */
+.reply-quote {
+  border-left: 2px solid #64b5ef;
+  padding-left: 8px;
+  margin-bottom: 4px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 0 4px 4px 0;
+  font-size: 12px;
+}
+
+.reply-quote .reply-author {
+  color: #64b5ef;
+  font-weight: bold;
+  font-size: 11px;
+  display: block;
+}
+
+.reply-quote .reply-text {
+  color: rgba(255, 255, 255, 0.8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+  display: block;
+}
+
 /* Панель реакций */
 .reaction-picker {
   position: absolute;
