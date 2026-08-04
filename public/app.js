@@ -1554,6 +1554,11 @@ function checkChatEmpty() {
 function addChatMessage(msg, mine = false) {
   if (!msg || !msg.text) return;
 
+  // Дедупликация: не добавляем сообщение, если оно уже есть
+  if (msg.id && state.messages.some(m => m.id === msg.id)) {
+    return;
+  }
+
   state.messages.push(msg);
   checkChatEmpty();
   if (els.chatEmpty) els.chatEmpty.classList.add('hidden');
@@ -1920,16 +1925,9 @@ function sendChatMessage() {
 
   state.socket.emit('CHAT', payload);
 
-  // Оптимистично показываем своё сообщение
-  addChatMessage({
-    id: 'local_' + Date.now(),
-    text,
-    sender: state.userName,
-    socketId: state.socket.id,
-    time: Date.now(),
-    replyToId: payload.replyToId,
-    replyToText: payload.replyToText,
-  }, true);
+  // Сервер теперь отправляет CHAT ВСЕМ (включая отправителя),
+  // поэтому не добавляем оптимистично — ждём подтверждение от сервера
+  // с правильным messageId для реакций.
 
   els.chatInput.value = '';
   els.chatInput.focus();

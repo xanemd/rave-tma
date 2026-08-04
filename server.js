@@ -305,7 +305,8 @@ io.on('connection', (socket) => {
     if (room.messages.length > 50) room.messages.shift();
 
     console.log(`💬 CHAT   | ${socket.id} | room=${roomId}`, payload.text);
-    socket.to(roomId).emit('CHAT', payload);
+    // Отправляем ВСЕМ в комнате (включая отправителя), чтобы у всех был одинаковый messageId
+    io.to(roomId).emit('CHAT', payload);
   });
 
   // ── Реакции на сообщения ───────────────────────────────────
