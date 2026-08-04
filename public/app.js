@@ -75,6 +75,7 @@ const state = {
   vimeoReady: false,
   pendingSocketEvents: [],
   loadingSafetyTimer: null,
+  isUserInteracted: false,
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -1443,6 +1444,11 @@ function getActivePlayer() {
 }
 
 function applyVideoSync(targetTime, isPaused) {
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  if (isMobile && !state.isUserInteracted) {
+    return;
+  }
+
   const player = getActivePlayer();
   if (!player) return;
 
@@ -1457,10 +1463,19 @@ function applyVideoSync(targetTime, isPaused) {
   }
 
   if (player.getPlayerState && player.getPlayerState() !== 1) {
-    if (player.playVideo) player.playVideo();
-    else if (player.paused && player.play) player.play();
-  } else if (player.paused && player.play) {
-    player.play();
+    if (player.playVideo) {
+      try {
+        player.playVideo();
+      } catch (e) {
+        if (player.mute) player.mute();
+        player.playVideo();
+      }
+    } else if (player.paused && player.play) {
+      player.play().catch(() => {
+        if (player.muted === undefined && player.mute) player.mute();
+        player.play().catch(() => {});
+      });
+    }
   }
 
   if (Math.abs(timeDiff) <= 0.5) {
@@ -1486,23 +1501,39 @@ function applyVideoSync(targetTime, isPaused) {
   }
 }
 
-function setPlayerSpeed(player, speed) {
-  try {
-    if (player.setPlaybackRate) {
-      player.setPlaybackRate(speed);
-    } else if (player.playbackRate) {
-      player.playbackRate = speed;
-    } else if (document.getElementById('yt-player-iframe')) {
-      const iframe = document.getElementById('yt-player-iframe');
-      iframe.contentWindow.postMessage(JSON.stringify({
-        event: 'command',
-        func: 'setPlaybackRate',
-        args: [speed]
-      }), '*');
+function setupMobileAutoplayFix() {
+  const container = document.getElementById('player-container');
+  if (!container || state.isUserInteracted) return;
+
+  const overlay = document.createElement('div');
+  overlay.id = 'unblock-autoplay-overlay';
+  overlay.style.cssText = `
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    z-index: 99; background: rgba(0,0,0,0.35); display: flex;
+    justify-content: center; align-items: center; color: white;
+    font-weight: bold; font-size: 14px; cursor: pointer;
+    text-align: center; padding: 20px; box-sizing: border-box;
+  `;
+  overlay.innerText = 'Нажмите на экран для старта видео 🍿';
+
+  const unlock = () => {
+    state.isUserInteracted = true;
+    overlay.remove();
+
+    const player = getActivePlayer();
+    if (player && player.playVideo) {
+      try { player.unMute(); } catch (e) { /* ignore */ }
+      player.playVideo();
     }
-  } catch (e) {
-    console.error("Ошибка смены скорости:", e);
-  }
+  };
+
+  overlay.addEventListener('click', unlock, { once: true });
+  overlay.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    unlock();
+  }, { once: true });
+
+  container.appendChild(overlay);
 }
 
 function startPeriodicSync() {
@@ -1611,6 +1642,10 @@ function showRoomView() {
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'none';
   hideLoading();
+
+  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
+    setTimeout(setupMobileAutoplayFix, 500);
+  }
 }
 
 function hideRoomView() {
