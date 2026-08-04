@@ -1471,6 +1471,24 @@ function hideRoomView() {
   if (el) el.classList.add('hidden');
 }
 
+function setActiveTab(tabId) {
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    item.classList.toggle('active', item.dataset.tab === tabId);
+  });
+}
+
+function loadVideoIntoPlayer(url) {
+  if (!url) return;
+
+  showRoomView();
+
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      loadMedia(url);
+    });
+  });
+}
+
 function showLoading(text) {
   if (els.loadingOverlay) {
     if (text && els.loadingText) els.loadingText.textContent = text;
@@ -2062,6 +2080,7 @@ function joinRoomByCode() {
   }
   connectSocket();
 
+  setActiveTab('rooms-tab');
   showRoomView();
   showSnack('🔑 Подключено к комнате: ' + roomId);
   closeDrawer();
@@ -2100,26 +2119,25 @@ function bindUI() {
       const name = (document.getElementById('createRoomName')?.value || '').trim();
       const url = (document.getElementById('createRoomUrl')?.value || '').trim();
 
-      // Генерируем новую комнату
       const newRoomId = generateRoomId();
       state.roomId = newRoomId;
       els.roomBadge.textContent = state.roomId;
       els.roomBadge.title = 'Комната: ' + state.roomId;
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
 
-      // Переподключаемся к новой комнате
       if (state.socket) {
         state.socket.disconnect();
         state.socket = null;
       }
       connectSocket();
 
-      // Если есть URL — загружаем видео
+      showRoomView();
+      setActiveTab('rooms-tab');
+
       if (url) {
-        setTimeout(() => loadMedia(url), 500);
+        loadVideoIntoPlayer(url);
       }
 
-      showRoomView();
       showSnack('🚀 Комната создана: ' + newRoomId);
     });
   }
@@ -2140,6 +2158,7 @@ function bindUI() {
       }
       connectSocket();
 
+      setActiveTab('rooms-tab');
       showRoomView();
       showSnack('🔑 Вошли в комнату: ' + roomId);
     });
