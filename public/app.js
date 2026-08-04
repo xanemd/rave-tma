@@ -131,7 +131,7 @@ const els = {
   loadingText: $('#loadingText'),
 
   // Экран комнаты
-  roomViewScreen: $('#roomViewScreen'),
+  roomViewScreen: $('#room-view-screen'),
 };
 
 let snackbarEl = null;
