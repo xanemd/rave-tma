@@ -59,6 +59,11 @@ const state = {
 
   // Чат
   messages: [],
+  replyTo: null, // { id, sender, text }
+
+  // Реакции
+  reactions: {}, // { messageId: { emoji: [userIds] } }
+  recentReactions: JSON.parse(localStorage.getItem('recent_reactions')) || ['❤️', '💖', '😻', '🥰', '😂'],
 
   // Rave-система
   isHost: null,
@@ -979,6 +984,13 @@ function connectSocket() {
       messages.forEach((msg) => addChatMessage(msg, msg.socketId === state.socket?.id));
     }
   });
+
+  // ── Реакции на сообщения ───────────────────────────────────
+  s.on('MESSAGE_REACTIONS', ({ messageId, reactions }) => {
+    console.log('[Reactions] ←', messageId, reactions);
+    state.reactions[messageId] = reactions || {};
+    renderMessageReactions(messageId);
+  });
 }
 
 function emitIfNeeded(eventName, payload) {
@@ -1537,18 +1549,271 @@ function addChatMessage(msg, mine = false) {
 
   const el = document.createElement('div');
   el.className = 'message-bubble ' + (isMine ? 'outgoing' : 'incoming');
+  el.dataset.messageId = msg.id || '';
 
   const time = formatTime(msg.time);
   const sender = escapeHtml(msg.sender || 'Гость');
 
+  // Цитата (reply)
+  let replyHtml = '';
+  if (msg.replyToId && msg.replyToText) {
+    replyHtml = `<div class="message-reply">↩ ${escapeHtml(msg.replyToText.slice(0, 50))}</div>`;
+  }
+
+  // Реакции
+  let reactionsHtml = '';
+  if (state.reactions[msg.id] && Object.keys(state.reactions[msg.id]).length > 0) {
+    reactionsHtml = '<div class="message-reactions">';
+    for (const [emoji, users] of Object.entries(state.reactions[msg.id])) {
+      if (users.length > 0) {
+        reactionsHtml += `<span class="reaction-item">${emoji} <span class="reaction-count">${users.length}</span></span>`;
+      }
+    }
+    reactionsHtml += '</div>';
+  }
+
   el.innerHTML = `
     <span class="message-sender">${isMine ? 'Вы' : sender}</span>
+    ${replyHtml}
     <span class="message-text">${escapeHtml(msg.text)}</span>
+    ${reactionsHtml}
     <span class="message-time">${time}</span>
   `;
 
+  // Добавляем обработчики свайпа и долгого нажатия
+  bindMessageInteractions(el, msg);
+
   els.chatMessages.appendChild(el);
   scrollChatToBottom();
+}
+
+function bindMessageInteractions(el, msg) {
+  let startX = 0;
+  let currentX = 0;
+  let isDragging = false;
+  const SWIPE_THRESHOLD = 50;
+
+  // Touch events for swipe-to-reply
+  el.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    isDragging = true;
+    el.style.transition = 'none';
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (e) => {
+    if (!isDragging) return;
+    currentX = e.touches[0].clientX;
+    const diffX = currentX - startX;
+    
+    // Only allow right swipe
+    if (diffX > 0 && diffX < 150) {
+      el.style.transform = `translateX(${diffX}px)`;
+      
+      // Haptic feedback at threshold
+      if (diffX > SWIPE_THRESHOLD && window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
+      }
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchend', (e) => {
+    if (!isDragging) return;
+    isDragging = false;
+    el.style.transition = 'transform 0.2s ease';
+    
+    const diffX = currentX - startX;
+    
+    if (diffX > SWIPE_THRESHOLD) {
+      // Trigger reply
+      el.style.transform = 'translateX(0)';
+      showReplyPreview(msg);
+    } else {
+      // Reset position
+      el.style.transform = 'translateX(0)';
+    }
+  });
+
+  // Long press / double tap for reactions
+  let pressTimer = null;
+  let lastTap = 0;
+
+  el.addEventListener('touchstart', (e) => {
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      // Double tap
+      clearTimeout(pressTimer);
+      showReactionPicker(el, msg, e);
+    } else {
+      pressTimer = setTimeout(() => {
+        showReactionPicker(el, msg, e);
+      }, 500);
+    }
+    lastTap = now;
+  }, { passive: true });
+
+  el.addEventListener('touchend', () => {
+    clearTimeout(pressTimer);
+  });
+
+  // Mouse events for desktop testing
+  el.addEventListener('dblclick', (e) => {
+    showReactionPicker(el, msg, e);
+  });
+
+  el.addEventListener('mousedown', (e) => {
+    if (e.button === 0) { // Left click
+      pressTimer = setTimeout(() => {
+        showReactionPicker(el, msg, e);
+      }, 500);
+    }
+  });
+
+  el.addEventListener('mouseup', () => {
+    clearTimeout(pressTimer);
+  });
+
+  el.addEventListener('mouseleave', () => {
+    clearTimeout(pressTimer);
+  });
+}
+
+function showReplyPreview(msg) {
+  state.replyTo = {
+    id: msg.id,
+    sender: msg.sender || 'Гость',
+    text: msg.text
+  };
+
+  const replyPreview = document.getElementById('reply-preview');
+  const replyUser = document.getElementById('reply-user');
+  const replyText = document.getElementById('reply-text');
+
+  if (replyPreview && replyUser && replyText) {
+    replyUser.textContent = state.replyTo.sender;
+    replyText.textContent = state.replyTo.text.slice(0, 50);
+    replyPreview.style.display = 'flex';
+    els.chatInput.focus();
+  }
+}
+
+function cancelReply() {
+  state.replyTo = null;
+  const replyPreview = document.getElementById('reply-preview');
+  if (replyPreview) {
+    replyPreview.style.display = 'none';
+  }
+}
+
+function showReactionPicker(el, msg, event) {
+  // Remove existing pickers
+  document.querySelectorAll('.reaction-picker').forEach(p => p.remove());
+
+  const picker = document.createElement('div');
+  picker.className = 'reaction-picker visible';
+
+  // Combine recent and all reactions
+  const allReactions = ['❤️', '💖', '💗', '💕', '🥰', '😍', '😘', '😻', '😸', '😽', '🐾', '🎀', '🌸', '✨', '🥺', '😂', '🔥', '👍', '👎', '😮', '😢', '💩', '🤡', '👏', '🙏'];
+  const recent = state.recentReactions || [];
+  const uniqueOthers = allReactions.filter(r => !recent.includes(r));
+  const orderedEmojis = [...recent, ...uniqueOthers].slice(0, 15);
+
+  orderedEmojis.forEach(emoji => {
+    const btn = document.createElement('button');
+    btn.className = 'reaction-btn';
+    btn.textContent = emoji;
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      sendReaction(msg.id, emoji);
+      picker.remove();
+    });
+    picker.appendChild(btn);
+  });
+
+  // Expand button
+  const expandBtn = document.createElement('button');
+  expandBtn.className = 'expand-reactions-btn';
+  expandBtn.textContent = '❯';
+  expandBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    picker.classList.toggle('expanded');
+  });
+  picker.appendChild(expandBtn);
+
+  // Position picker
+  el.style.position = 'relative';
+  el.appendChild(picker);
+
+  // Close on click outside
+  setTimeout(() => {
+    document.addEventListener('click', function closePicker(e) {
+      if (!picker.contains(e.target)) {
+        picker.remove();
+        document.removeEventListener('click', closePicker);
+      }
+    });
+  }, 100);
+}
+
+function sendReaction(messageId, emoji) {
+  if (!state.socket || !state.connected) {
+    showSnack('⚠️ Нет соединения с сервером');
+    return;
+  }
+
+  // Update recent reactions
+  state.recentReactions = state.recentReactions.filter(r => r !== emoji);
+  state.recentReactions.unshift(emoji);
+  state.recentReactions = state.recentReactions.slice(0, 8);
+  localStorage.setItem('recent_reactions', JSON.stringify(state.recentReactions));
+
+  // Send to server
+  state.socket.emit('send-message-reaction', {
+    messageId,
+    emoji,
+    sender: state.userName
+  });
+
+  // Optimistically update local state
+  if (!state.reactions[messageId]) {
+    state.reactions[messageId] = {};
+  }
+  if (!state.reactions[messageId][emoji]) {
+    state.reactions[messageId][emoji] = [];
+  }
+  if (!state.reactions[messageId][emoji].includes(state.socket.id)) {
+    state.reactions[messageId][emoji].push(state.socket.id);
+  }
+
+  // Re-render the message
+  renderMessageReactions(messageId);
+}
+
+function renderMessageReactions(messageId) {
+  const msgEl = document.querySelector(`[data-message-id="${messageId}"]`);
+  if (!msgEl) return;
+
+  // Remove existing reactions container
+  const existingReactions = msgEl.querySelector('.message-reactions');
+  if (existingReactions) {
+    existingReactions.remove();
+  }
+
+  // Add updated reactions
+  if (state.reactions[messageId] && Object.keys(state.reactions[messageId]).length > 0) {
+    const reactionsContainer = document.createElement('div');
+    reactionsContainer.className = 'message-reactions';
+    
+    for (const [emoji, users] of Object.entries(state.reactions[messageId])) {
+      if (users.length > 0) {
+        reactionsContainer.innerHTML += `<span class="reaction-item">${emoji} <span class="reaction-count">${users.length}</span></span>`;
+      }
+    }
+    
+    const timeEl = msgEl.querySelector('.message-time');
+    if (timeEl) {
+      timeEl.insertAdjacentElement('afterend', reactionsContainer);
+    }
+  }
 }
 
 function scrollChatToBottom() {
@@ -1576,10 +1841,19 @@ function sendChatMessage() {
   const text = els.chatInput.value.trim();
   if (!text) return;
 
-  state.socket.emit('CHAT', {
+  const payload = {
     text,
     sender: state.userName,
-  });
+  };
+
+  // Добавляем reply если есть
+  if (state.replyTo) {
+    payload.replyToId = state.replyTo.id;
+    payload.replyToText = state.replyTo.text;
+    cancelReply();
+  }
+
+  state.socket.emit('CHAT', payload);
 
   // Оптимистично показываем своё сообщение
   addChatMessage({
@@ -1588,6 +1862,8 @@ function sendChatMessage() {
     sender: state.userName,
     socketId: state.socket.id,
     time: Date.now(),
+    replyToId: payload.replyToId,
+    replyToText: payload.replyToText,
   }, true);
 
   els.chatInput.value = '';
@@ -1693,6 +1969,12 @@ function bindUI() {
   els.changeMediaBtn.addEventListener('click', openDrawer);
   els.drawerCloseBtn.addEventListener('click', closeDrawer);
   els.drawerOverlay.addEventListener('click', closeDrawer);
+
+  // Отмена ответа
+  const cancelReplyBtn = document.getElementById('cancel-reply');
+  if (cancelReplyBtn) {
+    cancelReplyBtn.addEventListener('click', cancelReply);
+  }
 
   // Подключение по коду
   els.joinCodeBtn.addEventListener('click', joinRoomByCode);

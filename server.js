@@ -306,6 +306,39 @@ io.on('connection', (socket) => {
     socket.to(roomId).emit('CHAT', payload);
   });
 
+  // ── Реакции на сообщения ───────────────────────────────────
+  socket.on('send-message-reaction', (data) => {
+    const messageId = String(data?.messageId || '');
+    const emoji = String(data?.emoji || '');
+    if (!messageId || !emoji) return;
+
+    // Инициализируем структуру если нужно
+    if (!room.reactions) room.reactions = {};
+    if (!room.reactions[messageId]) room.reactions[messageId] = {};
+
+    const emojiKey = emoji;
+    if (!room.reactions[messageId][emojiKey]) {
+      room.reactions[messageId][emojiKey] = [];
+    }
+
+    // Переключаем реакцию (toggle)
+    const userIndex = room.reactions[messageId][emojiKey].indexOf(socket.id);
+    if (userIndex >= 0) {
+      room.reactions[messageId][emojiKey].splice(userIndex, 1);
+      if (room.reactions[messageId][emojiKey].length === 0) {
+        delete room.reactions[messageId][emojiKey];
+      }
+    } else {
+      room.reactions[messageId][emojiKey].push(socket.id);
+    }
+
+    // Отправляем обновлённые реакции всем в комнате
+    io.to(roomId).emit('MESSAGE_REACTIONS', {
+      messageId,
+      reactions: room.reactions[messageId],
+    });
+  });
+
   // ── Пиры ────────────────────────────────────────────────────
   socket.on('GET_PEERS', () => {
     const peers = [...io.sockets.adapter.rooms.get(roomId) || []]

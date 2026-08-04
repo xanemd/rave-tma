@@ -119,24 +119,33 @@
 
     <!-- ── ЧАТ ────────────────────────────────────────────── -->
     <section class="chat-section" id="chatSection">
-      <div class="chat-messages" id="chatMessages">
+      <div class="chat-container" id="chatContainer">
         <div class="hearts-bg"></div>
-        <div class="chat-empty" id="chatEmpty">
-          <span>💬</span>
-          <p>Напишите что-нибудь собеседнику</p>
+        <div class="chat-messages" id="chatMessages">
+          <div class="chat-empty" id="chatEmpty">
+            <span>💬</span>
+            <p>Напишите что-нибудь собеседнику</p>
+          </div>
         </div>
       </div>
 
-      <div class="chat-input-row">
-        <input
-          type="text"
-          id="chatInput"
-          class="chat-input"
-          placeholder="Сообщение…"
-          autocomplete="off"
-          maxlength="500"
-        >
-        <button class="btn btn-primary btn-sm" id="chatSendBtn" type="button">➤</button>
+      <div class="chat-input-wrapper">
+        <div id="reply-preview" style="display: none;">
+          <span>Ответ для <b id="reply-user"></b>:</span>
+          <span id="reply-text"></span>
+          <button id="cancel-reply" type="button">✕</button>
+        </div>
+        <div class="chat-input-row">
+          <input
+            type="text"
+            id="chatInput"
+            class="chat-input"
+            placeholder="Сообщение…"
+            autocomplete="off"
+            maxlength="500"
+          >
+          <button class="btn btn-primary btn-sm" id="chatSendBtn" type="button">➤</button>
+        </div>
       </div>
     </section>
 
@@ -203,8 +212,9 @@
       <!-- Анимация сердечек -->
       <div class="drawer-divider">Анимация</div>
       <div class="drawer-peer">
-        <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; flex: 1;">
-          <input type="checkbox" id="heartsToggle" checked style="width: 18px; height: 18px; cursor: pointer;">
+        <label class="toggle-switch">
+          <input type="checkbox" id="heartsToggle" checked class="toggle-checkbox">
+          <span class="toggle-slider"></span>
           <span>Сердечки в чате</span>
         </label>
       </div>
