@@ -241,6 +241,89 @@
     <div class="loading-text" id="loadingText">Загрузка видео…</div>
   </div>
 
+  <!-- ════════════════════════════════════════════════════════
+       НИЖНЕЕ МЕНЮ НАВИГАЦИИ (Bottom Navigation Bar)
+       ════════════════════════════════════════════════════════ -->
+  <nav class="bottom-nav">
+    <button class="nav-item active" data-tab="rooms-tab">
+      <span class="nav-icon">🏠</span>
+      <span class="nav-label">Комнаты</span>
+    </button>
+    <button class="nav-item" data-tab="create-tab">
+      <span class="nav-icon">➕</span>
+      <span class="nav-label">Создать</span>
+    </button>
+    <button class="nav-item" data-tab="friends-tab">
+      <span class="nav-icon">👥</span>
+      <span class="nav-label">Друзья</span>
+    </button>
+  </nav>
+
+  <!-- ════════════════════════════════════════════════════════
+       ТАБЫ
+       ════════════════════════════════════════════════════════ -->
+  <div id="rooms-tab" class="tab-content">
+    <div class="tab-header">
+      <h3>Комнаты</h3>
+      <button class="btn btn-ghost btn-sm" id="refreshRoomsBtn" type="button">🔄 Обновить</button>
+    </div>
+    <div class="tab-body">
+      <div class="room-list" id="roomList">
+        <div class="room-item" data-room="main_room">
+          <span class="room-item-icon">🎬</span>
+          <div class="room-item-info">
+            <span class="room-item-name">main_room</span>
+            <span class="room-item-sub">Комната по умолчанию</span>
+          </div>
+          <button class="btn btn-primary btn-sm room-join" data-room="main_room" type="button">Войти</button>
+        </div>
+        <div class="room-empty" id="roomsEmpty">Нет доступных комнат</div>
+      </div>
+    </div>
+  </div>
+
+  <div id="create-tab" class="tab-content" style="display:none;">
+    <div class="tab-header">
+      <h3>Создать комнату</h3>
+    </div>
+    <div class="tab-body">
+      <div class="drawer-divider">Название комнаты</div>
+      <div class="create-input-row">
+        <input type="text" id="createRoomName" class="url-input" placeholder="Моя комната" autocomplete="off">
+      </div>
+      <div class="drawer-divider">Ссылка на видео</div>
+      <div class="create-input-row">
+        <input type="text" id="createRoomUrl" class="url-input" placeholder="Вставьте ссылку: YouTube, .mp4, .m3u8…" autocomplete="off">
+      </div>
+      <div class="drawer-divider">Приватность</div>
+      <div class="create-input-row">
+        <label class="toggle-switch">
+          <input type="checkbox" id="createRoomPrivate" class="toggle-checkbox">
+          <span class="toggle-slider"></span>
+          <span>Приватная комната</span>
+        </label>
+      </div>
+      <div class="create-input-row">
+        <button class="btn btn-primary" id="createRoomBtn" type="button">🚀 Создать комнату</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="friends-tab" class="tab-content" style="display:none;">
+    <div class="tab-header">
+      <h3>Друзья</h3>
+    </div>
+    <div class="tab-body">
+      <div class="create-input-row">
+        <input type="text" id="friendSearchInput" class="url-input" placeholder="Поиск по @username…" autocomplete="off">
+      </div>
+      <div class="drawer-divider">Друзья онлайн</div>
+      <div class="drawer-peers" id="friendsList">
+        <div class="drawer-peer">🎬 Вы</div>
+      </div>
+    </div>
+  </div>
+
   <!-- Скрипт приложения -->
   <script src="app.js"></script>
 </body>

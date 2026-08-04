@@ -1782,7 +1782,7 @@ function showReactionPicker(el, msg, event) {
   expandBtn.addEventListener('click', (e) => {
     e.stopPropagation();
     picker.classList.toggle('expanded');
-    
+
     // Если развернули — добавляем остальные реакции
     if (picker.classList.contains('expanded')) {
       const existingEmojis = new Set(visibleEmojis);
@@ -1804,18 +1804,44 @@ function showReactionPicker(el, msg, event) {
   });
   picker.appendChild(expandBtn);
 
-  // Position picker
-  el.style.position = 'relative';
-  el.appendChild(picker);
+  // FIX: Динамическое позиционирование через getBoundingClientRect
+  // Создаём панель в document.body, чтобы избежать обрезания экраном
+  document.body.appendChild(picker);
 
-  // Close on click outside
+  const rect = el.getBoundingClientRect();
+  const isOutgoing = el.classList.contains('outgoing');
+  const pickerHeight = 40; // примерная высота панели
+
+  // Горизонтальное позиционирование
+  if (isOutgoing) {
+    // Исходящее — прижимаем к правому краю баббла
+    picker.style.left = 'auto';
+    picker.style.right = (window.innerWidth - rect.right) + 'px';
+  } else {
+    // Входящее — прижимаем к левому краю баббла
+    picker.style.left = rect.left + 'px';
+    picker.style.right = 'auto';
+  }
+
+  // Вертикальное позиционирование: сначала сверху
+  let top = rect.top - pickerHeight - 8;
+  if (top < 10) {
+    // Если места сверху мало — открываем снизу
+    top = rect.bottom + 8;
+  }
+  picker.style.top = top + 'px';
+
+  // Закрытие при клике в любую область
+  const closePicker = (e) => {
+    if (!picker.contains(e.target)) {
+      picker.remove();
+      document.removeEventListener('click', closePicker);
+      els.chatMessages.removeEventListener('scroll', closePicker);
+    }
+  };
   setTimeout(() => {
-    document.addEventListener('click', function closePicker(e) {
-      if (!picker.contains(e.target)) {
-        picker.remove();
-        document.removeEventListener('click', closePicker);
-      }
-    });
+    document.addEventListener('click', closePicker);
+    els.chatMessages.addEventListener('scroll', closePicker);
   }, 100);
 }
 
@@ -2028,6 +2054,77 @@ function joinRoomByCode() {
 }
 
 function bindUI() {
+  // ── Нижнее меню навигации (Bottom Navigation) ─────────────
+  document.querySelectorAll('.nav-item').forEach((item) => {
+    item.addEventListener('click', () => {
+      const tabId = item.dataset.tab;
+      if (!tabId) return;
+
+      // Переключаем активный класс
+      document.querySelectorAll('.nav-item').forEach((i) => i.classList.remove('active'));
+      item.classList.add('active');
+
+      // Показываем/скрываем вкладки
+      document.querySelectorAll('.tab-content').forEach((tab) => {
+        tab.style.display = tab.id === tabId ? 'block' : 'none';
+      });
+
+      // Haptic feedback при смене вкладки
+      if (window.Telegram?.WebApp?.HapticFeedback) {
+        window.Telegram.WebApp.HapticFeedback.selectionChanged();
+      }
+    });
+  });
+
+  // Кнопка «Создать комнату»
+  const createRoomBtn = document.getElementById('createRoomBtn');
+  if (createRoomBtn) {
+    createRoomBtn.addEventListener('click', () => {
+      const name = (document.getElementById('createRoomName')?.value || '').trim();
+      const url = (document.getElementById('createRoomUrl')?.value || '').trim();
+
+      // Генерируем новую комнату
+      const newRoomId = generateRoomId();
+      state.roomId = newRoomId;
+      els.roomBadge.textContent = state.roomId;
+      els.roomBadge.title = 'Комната: ' + state.roomId;
+      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+
+      // Переподключаемся к новой комнате
+      if (state.socket) {
+        state.socket.disconnect();
+        state.socket = null;
+      }
+      connectSocket();
+
+      // Если есть URL — загружаем видео
+      if (url) {
+        setTimeout(() => loadMedia(url), 500);
+      }
+
+      showSnack('🚀 Комната создана: ' + newRoomId);
+    });
+  }
+
+  // Вход в комнату из списка
+  document.querySelectorAll('.room-join').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const roomId = btn.dataset.room;
+      if (!roomId) return;
+      state.roomId = roomId;
+      els.roomBadge.textContent = state.roomId;
+      els.roomBadge.title = 'Комната: ' + state.roomId;
+      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+
+      if (state.socket) {
+        state.socket.disconnect();
+        state.socket = null;
+      }
+      connectSocket();
+      showSnack('🔑 Вошли в комнату: ' + roomId);
+    });
+  });
+
   // Открыть панель смены видео
   els.changeMediaBtn.addEventListener('click', openDrawer);
   els.drawerCloseBtn.addEventListener('click', closeDrawer);

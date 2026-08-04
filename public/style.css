@@ -430,35 +430,33 @@ input {
 
 /* FIX 3: Цитата ответа как в Telegram */
 .reply-quote {
-  border-left: 2px solid #64b5ef;
+  border-left: 2.5px solid #64b5ef;
   padding-left: 8px;
-  margin-bottom: 4px;
-  background: rgba(255, 255, 255, 0.05);
-  border-radius: 0 4px 4px 0;
+  margin-bottom: 5px;
+  background: rgba(255, 255, 255, 0.06);
+  border-radius: 0 6px 6px 0;
   font-size: 12px;
 }
 
 .reply-quote .reply-author {
   color: #64b5ef;
-  font-weight: bold;
+  font-weight: 600;
   font-size: 11px;
   display: block;
 }
 
 .reply-quote .reply-text {
-  color: rgba(255, 255, 255, 0.8);
+  color: rgba(255, 255, 255, 0.85);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 200px;
+  max-width: 180px;
   display: block;
 }
 
-/* Панель реакций */
+/* Панель реакций — position: fixed для динамического позиционирования */
 .reaction-picker {
-  position: absolute;
-  top: -48px;
-  left: 10px;
+  position: fixed;
   background: #1e2c3a;
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 24px;
@@ -468,9 +466,9 @@ input {
   gap: 4px;
   width: 220px;
   overflow: hidden;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 15px rgba(0,0,0,0.4);
-  z-index: 100;
+  transition: width 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 8px 20px rgba(0,0,0,0.6);
+  z-index: 99999;
 }
 
 .reaction-picker.visible {
@@ -525,10 +523,22 @@ input {
 
 /* Контейнер реакций на сообщении */
 .message-reactions {
-  display: flex;
-  flex-wrap: wrap;
+  display: inline-flex;
   gap: 4px;
+  background: rgba(23, 33, 43, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  padding: 2px 6px;
+  font-size: 11px;
   margin-top: 4px;
+}
+
+.message-bubble.outgoing .message-reactions {
+  float: right;
+}
+
+.message-bubble.incoming .message-reactions {
+  float: left;
 }
 
 .reaction-item {
@@ -1011,6 +1021,125 @@ input {
 .snackbar.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   НИЖНЕЕ МЕНЮ НАВИГАЦИИ (Bottom Navigation Bar)
+   ═══════════════════════════════════════════════════════════ */
+.bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 60px;
+  background: #17212b;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  z-index: 1000;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.nav-item {
+  background: none;
+  border: none;
+  color: #7f91a4;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: color 0.2s ease;
+  padding: 6px 12px;
+}
+
+.nav-item.active {
+  color: #64b5ef;
+}
+
+.nav-icon {
+  font-size: 20px;
+}
+
+.nav-label {
+  font-size: 10px;
+  font-weight: 500;
+}
+
+/* Учитываем отступ снизу под меню для контента вкладок */
+.tab-content {
+  padding-bottom: 70px;
+}
+
+.tab-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 16px 8px;
+}
+
+.tab-header h3 {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--tg-text);
+}
+
+.tab-body {
+  padding: 0 16px;
+}
+
+.room-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.room-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: var(--tg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.room-item-icon {
+  font-size: 24px;
+}
+
+.room-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.room-item-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tg-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.room-item-sub {
+  font-size: 11px;
+  color: var(--tg-hint);
+}
+
+.room-empty {
+  text-align: center;
+  padding: 24px;
+  color: var(--tg-hint);
+  font-size: 13px;
+}
+
+.create-input-row {
+  margin-bottom: 8px;
 }
 
 /* ═══════════════════════════════════════════════════════════
