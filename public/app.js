@@ -1447,27 +1447,61 @@ function applyVideoSync(targetTime, isPaused) {
   if (!player) return;
 
   const currentTime = player.getCurrentTime ? player.getCurrentTime() : player.currentTime;
-  const timeDiff = Math.abs(currentTime - targetTime);
+  const timeDiff = targetTime - currentTime;
 
   if (isPaused) {
     if (player.pauseVideo) player.pauseVideo();
-    else player.pause();
-  } else {
-    if (player.playVideo) {
-      const state = player.getPlayerState();
-      if (state !== 1) player.playVideo();
-    } else if (player.play) {
-      player.play().catch(() => {});
-    }
+    else if (player.pause) player.pause();
+    setPlayerSpeed(player, 1.0);
+    return;
   }
 
-  if (timeDiff > 1.0) {
-    console.log(`[Sync] Корректировка рассинхрона: ${timeDiff.toFixed(2)}сек.`);
-    if (player.seekTo) {
-      player.seekTo(targetTime, true);
+  if (player.getPlayerState && player.getPlayerState() !== 1) {
+    if (player.playVideo) player.playVideo();
+    else if (player.paused && player.play) player.play();
+  } else if (player.paused && player.play) {
+    player.play();
+  }
+
+  if (Math.abs(timeDiff) <= 0.5) {
+    setPlayerSpeed(player, 1.0);
+    return;
+  }
+
+  if (Math.abs(timeDiff) > 0.5 && Math.abs(timeDiff) <= 4.0) {
+    if (timeDiff > 0) {
+      setPlayerSpeed(player, 1.15);
     } else {
-      player.currentTime = targetTime;
+      setPlayerSpeed(player, 0.85);
     }
+    return;
+  }
+
+  console.log(`[Sync] Крупный рассинхрон (${timeDiff.toFixed(1)}s), делаем seekTo`);
+  setPlayerSpeed(player, 1.0);
+  if (player.seekTo) {
+    player.seekTo(targetTime, true);
+  } else {
+    player.currentTime = targetTime;
+  }
+}
+
+function setPlayerSpeed(player, speed) {
+  try {
+    if (player.setPlaybackRate) {
+      player.setPlaybackRate(speed);
+    } else if (player.playbackRate) {
+      player.playbackRate = speed;
+    } else if (document.getElementById('yt-player-iframe')) {
+      const iframe = document.getElementById('yt-player-iframe');
+      iframe.contentWindow.postMessage(JSON.stringify({
+        event: 'command',
+        func: 'setPlaybackRate',
+        args: [speed]
+      }), '*');
+    }
+  } catch (e) {
+    console.error("Ошибка смены скорости:", e);
   }
 }
 
