@@ -553,10 +553,11 @@ input {
 
 /* Контейнер реакций на сообщении */
 .message-reactions-container {
-  position: static;
-  display: inline-flex;
+  position: static !important;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   background: rgba(30, 44, 58, 0.95);
   border: 1px solid rgba(255, 255, 255, 0.15);
   border-radius: 12px;
@@ -1116,6 +1117,9 @@ input {
   flex: 1;
   flex-direction: column;
   overflow: hidden;
+  position: relative;
+  z-index: 5;
+  background: var(--tg-bg);
 }
 
 .tab-body {

@@ -1640,7 +1640,10 @@ function updateConnUI(connected) {
 
 function showRoomView() {
   const el = els.roomViewScreen;
-  if (el) el.classList.remove('hidden');
+  if (el) {
+    el.classList.remove('hidden');
+    el.style.display = 'flex';
+  }
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'none';
   hideLoading();
@@ -1652,7 +1655,10 @@ function showRoomView() {
 
 function hideRoomView() {
   const el = els.roomViewScreen;
-  if (el) el.classList.add('hidden');
+  if (el) {
+    el.classList.add('hidden');
+    el.style.display = 'none';
+  }
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'flex';
 }
