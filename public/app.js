@@ -75,6 +75,7 @@ const state = {
   vimeoReady: false,
   pendingSocketEvents: [],
   loadingSafetyTimer: null,
+  isPlaying: false,
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -1444,6 +1445,18 @@ function getActivePlayer() {
   return null;
 }
 
+function setPlayerSpeed(player, speed) {
+  try {
+    if (player.setPlaybackRate) {
+      player.setPlaybackRate(speed);
+    } else if (player.playbackRate !== undefined) {
+      player.playbackRate = speed;
+    }
+  } catch (e) {
+    console.error("Ошибка смены скорости:", e);
+  }
+}
+
 function applyVideoSync(targetTime, isPaused) {
   const player = getActivePlayer();
   if (!player) return;
@@ -2493,7 +2506,7 @@ setInterval(createHeart, 2500);
   connectSocket();
 
   // Если открылись по Telegram deep link — сразу подключаемся к комнате
-  const startParam = (tg.initDataUnsafe || {}).start_param;
+  const startParam = (window.Telegram?.WebApp?.initDataUnsafe || {}).start_param;
   if (startParam) {
     setTimeout(() => {
       state.roomId = startParam;
@@ -2504,7 +2517,6 @@ setInterval(createHeart, 2500);
       showRoomView();
     }, 500);
   }
-}
 
   // Статус
   renderDrawerPeers();
