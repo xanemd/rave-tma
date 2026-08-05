@@ -2161,28 +2161,27 @@ function closeDrawer() {
    ═══════════════════════════════════════════════════════════ */
 
 async function inviteFriend() {
-  const botUsername = 'watchwithme_bot'; // Замени на username твоего бота
-  const shareUrl = `https://t.me/${botUsername}?startapp=${encodeURIComponent(state.roomId)}`;
+  const inviteUrl = makeInviteUrl();
 
   try {
     if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(shareUrl);
+      await navigator.clipboard.writeText(inviteUrl);
     } else {
-      Telegram.WebApp.Clipboard?.writeText(shareUrl);
+      Telegram.WebApp.Clipboard?.writeText(inviteUrl);
     }
     showSnack('🔗 Ссылка-приглашение скопирована');
   } catch (e) {
     console.warn('[Invite] Clipboard недоступен:', e);
-    els.urlInput.value = shareUrl;
+    els.urlInput.value = inviteUrl;
     openDrawer();
     showSnack('🔗 Ссылка скопирована в поле ввода');
   }
 }
 
 function makeInviteUrl() {
-  const botUsername = 'watchwithme_bot'; // Замени на username твоего бота
+  const base = window.location.origin + window.location.pathname;
   const room = encodeURIComponent(state.roomId);
-  return `https://t.me/${botUsername}?startapp=${room}`;
+  return `${base}?room=${room}`;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2505,6 +2504,7 @@ setInterval(createHeart, 2500);
       showRoomView();
     }, 500);
   }
+}
 
   // Статус
   renderDrawerPeers();
