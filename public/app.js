@@ -75,7 +75,6 @@ const state = {
   vimeoReady: false,
   pendingSocketEvents: [],
   loadingSafetyTimer: null,
-  isUserInteracted: false,
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -1446,11 +1445,6 @@ function getActivePlayer() {
 }
 
 function applyVideoSync(targetTime, isPaused) {
-  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-  if (isMobile && !state.isUserInteracted) {
-    return;
-  }
-
   const player = getActivePlayer();
   if (!player) return;
 
@@ -1466,17 +1460,9 @@ function applyVideoSync(targetTime, isPaused) {
 
   if (player.getPlayerState && player.getPlayerState() !== 1) {
     if (player.playVideo) {
-      try {
-        player.playVideo();
-      } catch (e) {
-        if (player.mute) player.mute();
-        player.playVideo();
-      }
+      try { player.playVideo(); } catch (e) { /* ignore */ }
     } else if (player.paused && player.play) {
-      player.play().catch(() => {
-        if (player.muted === undefined && player.mute) player.mute();
-        player.play().catch(() => {});
-      });
+      player.play().catch(() => {});
     }
   }
 
@@ -1485,7 +1471,7 @@ function applyVideoSync(targetTime, isPaused) {
     return;
   }
 
-  if (Math.abs(timeDiff) > 0.5 && Math.abs(timeDiff) <= 4.0) {
+  if (Math.abs(timeDiff) > 0.5 && Math.abs(timeDiff) <= 3.0) {
     if (timeDiff > 0) {
       setPlayerSpeed(player, 1.15);
     } else {
@@ -1503,41 +1489,6 @@ function applyVideoSync(targetTime, isPaused) {
   }
 }
 
-function setupMobileAutoplayFix() {
-  const container = document.getElementById('player-container');
-  if (!container || state.isUserInteracted) return;
-
-  const overlay = document.createElement('div');
-  overlay.id = 'unblock-autoplay-overlay';
-  overlay.style.cssText = `
-    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-    z-index: 99; background: rgba(0,0,0,0.35); display: flex;
-    justify-content: center; align-items: center; color: white;
-    font-weight: bold; font-size: 14px; cursor: pointer;
-    text-align: center; padding: 20px; box-sizing: border-box;
-  `;
-  overlay.innerText = 'Нажмите на экран для старта видео 🍿';
-
-  const unlock = () => {
-    state.isUserInteracted = true;
-    overlay.remove();
-
-    const player = getActivePlayer();
-    if (player && player.playVideo) {
-      try { player.unMute(); } catch (e) { /* ignore */ }
-      player.playVideo();
-    }
-  };
-
-  overlay.addEventListener('click', unlock, { once: true });
-  overlay.addEventListener('touchend', (e) => {
-    e.preventDefault();
-    unlock();
-  }, { once: true });
-
-  container.appendChild(overlay);
-}
-
 function startPeriodicSync() {
   stopPeriodicSync();
   state.syncInterval = setInterval(() => {
@@ -1549,7 +1500,7 @@ function startPeriodicSync() {
       currentTime,
       isPaused: !state.isPlaying,
     });
-  }, 4000);
+  }, 3000);
 }
 
 function stopPeriodicSync() {
@@ -1647,10 +1598,6 @@ function showRoomView() {
   const nav = document.querySelector('.bottom-nav');
   if (nav) nav.style.display = 'none';
   hideLoading();
-
-  if (/Android|iPhone|iPad|iPod/i.test(navigator.userAgent)) {
-    setTimeout(setupMobileAutoplayFix, 500);
-  }
 }
 
 function hideRoomView() {
@@ -1884,12 +1831,18 @@ function bindMessageInteractions(el, msg) {
       longPressTimer = null;
     }
 
-    // Только свайп вправо
-    if (diffX > 0 && diffX < 150) {
-      el.style.transform = `translateX(${diffX}px)`;
+    // FIX: Направление свайпа зависит от типа сообщения
+    // Входящее (.incoming) — свайп вправо; Исходящее (.outgoing) — свайп влево
+    const isOutgoing = el.classList.contains('outgoing');
+    const swipeDir = isOutgoing ? -1 : 1;
+    const swipeAmount = diffX * swipeDir;
 
-      // Вибрация при достижении порога свайпа
-      if (diffX > SWIPE_THRESHOLD && window.Telegram?.WebApp?.HapticFeedback) {
+    if (swipeAmount > 0 && swipeAmount < 150) {
+      el.style.transform = isOutgoing
+        ? `translateX(-${swipeAmount}px)`
+        : `translateX(${swipeAmount}px)`;
+
+      if (swipeAmount > SWIPE_THRESHOLD && window.Telegram?.WebApp?.HapticFeedback) {
         window.Telegram.WebApp.HapticFeedback.impactOccurred('light');
       }
     }
@@ -1904,13 +1857,15 @@ function bindMessageInteractions(el, msg) {
     el.style.transition = 'transform 0.2s ease';
 
     const diffX = currentX - startX;
+    const isOutgoing = el.classList.contains('outgoing');
 
-    if (diffX > SWIPE_THRESHOLD) {
-      // Свайп → ответ
+    // FIX: Входящее — свайп вправо; Исходящее — свайп влево
+    const shouldReply = isOutgoing ? (diffX < -SWIPE_THRESHOLD) : (diffX > SWIPE_THRESHOLD);
+
+    if (shouldReply) {
       el.style.transform = 'translateX(0)';
       showReplyPreview(msg);
     } else {
-      // Сброс позиции
       el.style.transform = 'translateX(0)';
     }
   });
@@ -2206,23 +2161,28 @@ function closeDrawer() {
    ═══════════════════════════════════════════════════════════ */
 
 async function inviteFriend() {
-  const inviteUrl = makeInviteUrl();
+  const botUsername = 'watchwithme_bot'; // Замени на username твоего бота
+  const shareUrl = `https://t.me/${botUsername}?startapp=${encodeURIComponent(state.roomId)}`;
 
   try {
-    await navigator.clipboard.writeText(inviteUrl);
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(shareUrl);
+    } else {
+      Telegram.WebApp.Clipboard?.writeText(shareUrl);
+    }
     showSnack('🔗 Ссылка-приглашение скопирована');
   } catch (e) {
     console.warn('[Invite] Clipboard недоступен:', e);
-    els.urlInput.value = inviteUrl;
+    els.urlInput.value = shareUrl;
     openDrawer();
     showSnack('🔗 Ссылка скопирована в поле ввода');
   }
 }
 
 function makeInviteUrl() {
-  const base = window.location.origin + window.location.pathname;
+  const botUsername = 'watchwithme_bot'; // Замени на username твоего бота
   const room = encodeURIComponent(state.roomId);
-  return `${base}?room=${room}`;
+  return `https://t.me/${botUsername}?startapp=${room}`;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2532,6 +2492,19 @@ setInterval(createHeart, 2500);
 
   // Подключаемся к Socket.io
   connectSocket();
+
+  // Если открылись по Telegram deep link — сразу подключаемся к комнате
+  const startParam = (tg.initDataUnsafe || {}).start_param;
+  if (startParam) {
+    setTimeout(() => {
+      state.roomId = startParam;
+      els.roomBadge.textContent = state.roomId;
+      els.roomBadge.title = 'Комната: ' + state.roomId;
+      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+      connectSocket();
+      showRoomView();
+    }, 500);
+  }
 
   // Статус
   renderDrawerPeers();
