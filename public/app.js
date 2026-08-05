@@ -1445,15 +1445,22 @@ function getActivePlayer() {
   return null;
 }
 
-function setPlayerSpeed(player, speed) {
+function setSupportedSpeed(player, speed) {
   try {
-    if (player.setPlaybackRate) {
+    if (player && typeof player.setPlaybackRate === 'function') {
       player.setPlaybackRate(speed);
-    } else if (player.playbackRate !== undefined) {
-      player.playbackRate = speed;
+    } else {
+      const iframe = document.getElementById('yt-player-iframe');
+      if (iframe && iframe.contentWindow) {
+        iframe.contentWindow.postMessage(JSON.stringify({
+          event: 'command',
+          func: 'setPlaybackRate',
+          args: [speed]
+        }), '*');
+      }
     }
   } catch (e) {
-    console.error("Ошибка смены скорости:", e);
+    console.error("Ошибка при смене скорости:", e);
   }
 }
 
@@ -1467,7 +1474,7 @@ function applyVideoSync(targetTime, isPaused) {
   if (isPaused) {
     if (player.pauseVideo) player.pauseVideo();
     else if (player.pause) player.pause();
-    setPlayerSpeed(player, 1.0);
+    setSupportedSpeed(player, 1.0);
     return;
   }
 
@@ -1479,22 +1486,22 @@ function applyVideoSync(targetTime, isPaused) {
     }
   }
 
-  if (Math.abs(timeDiff) <= 0.5) {
-    setPlayerSpeed(player, 1.0);
+  if (Math.abs(timeDiff) <= 0.4) {
+    setSupportedSpeed(player, 1.0);
     return;
   }
 
-  if (Math.abs(timeDiff) > 0.5 && Math.abs(timeDiff) <= 3.0) {
+  if (Math.abs(timeDiff) > 0.4 && Math.abs(timeDiff) <= 2.5) {
     if (timeDiff > 0) {
-      setPlayerSpeed(player, 1.15);
+      setSupportedSpeed(player, 1.25);
     } else {
-      setPlayerSpeed(player, 0.85);
+      setSupportedSpeed(player, 0.75);
     }
     return;
   }
 
-  console.log(`[Sync] Крупный рассинхрон (${timeDiff.toFixed(1)}s), делаем seekTo`);
-  setPlayerSpeed(player, 1.0);
+  console.log(`[Sync] Рассинхрон > 2.5s (${timeDiff.toFixed(2)}s). Выполняем seekTo.`);
+  setSupportedSpeed(player, 1.0);
   if (player.seekTo) {
     player.seekTo(targetTime, true);
   } else {
