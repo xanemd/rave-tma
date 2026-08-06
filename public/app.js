@@ -1827,10 +1827,31 @@ function startPeriodicSync() {
     if (!state.isHost || !state.socket || !state.connected) return;
     if (!state.currentUrl) return;
 
-    const currentTime = getCurrentPlayhead();
+    const player = getPlayerInterface();
+    if (!player || typeof player.isPlaying !== 'function') return;
+
+    const currentTime = player.getCurrentTime();
+
+    // Используем реальное состояние плеера, а не устаревшее state.isPlaying,
+    // чтобы sync-video не послал isPaused:true когда плеер на самом деле играет.
+    // Для YouTube также учитываем BUFFERING — это не пауза.
+    const rawPlayer = state.ytPlayer;
+    let isPlayingNow;
+    if (rawPlayer && typeof rawPlayer.getPlayerState === 'function') {
+      // YouTube: играет, если PLAYING или BUFFERING
+      const ps = rawPlayer.getPlayerState();
+      isPlayingNow = (ps === YT.PlayerState.PLAYING || ps === YT.PlayerState.BUFFERING);
+    } else if (player.isPlaying) {
+      isPlayingNow = player.isPlaying();
+    } else {
+      isPlayingNow = !document.getElementById('nativeVideo')?.paused;
+    }
+
+    state.isPlaying = isPlayingNow;
+
     state.socket.emit('sync-video', {
       currentTime,
-      isPaused: !state.isPlaying,
+      isPaused: !isPlayingNow,
     });
   }, 3000);
 }
