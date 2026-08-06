@@ -65,24 +65,33 @@ app.get('/', (req, res) => {
 // }
 const rooms = new Map();
 
+/**
+ * Универсальный хелпер безопасного получения комнаты.
+ * Никогда не создаёт комнату автоматически и не роняет Node.js
+ * при `rooms.get(undefined)`.
+ */
 function getRoom(roomId) {
-  if (!rooms.has(roomId)) {
-    rooms.set(roomId, {
-      hostId: null,
-      currentUrl: '',
-      currentType: null,
-      isPlaying: false,
-      position: 0,
-      startedAt: 0,
-      queue: [],
-      viewers: 0,
-      messages: [],
-      reactions: {},
-      createdAt: Date.now(),
-      name: roomId,
-    });
-  }
-  return rooms.get(roomId);
+  if (!roomId || typeof roomId !== 'string') return null;
+  return rooms.get(roomId) || null;
+}
+
+function createRoomRecord(roomId, name, hostId) {
+  return {
+    id: roomId,
+    name: (name && String(name).trim().slice(0, 64)) || `Комната ${roomId}`,
+    hostId,
+    currentUrl: '',
+    currentType: null,
+    isPlaying: false,
+    position: 0,
+    startedAt: 0,
+    queue: [],
+    viewers: 1,
+    users: new Map(),
+    messages: [],
+    reactions: {},
+    createdAt: Date.now(),
+  };
 }
 
 function getPublicRoomsList() {
@@ -136,9 +145,18 @@ io.on('connection', (socket) => {
   const roomId = sanitizeRoom(socket.handshake.query.room);
   const hasRoom = Boolean(roomId);
 
+  // Всегда устанавливаем currentRoomId (null для лобби).
+  // Это ключевая защита от падения `rooms.get(undefined)`.
+  socket.currentRoomId = roomId || null;
+
   if (hasRoom) {
     socket.join(roomId);
-    const room = getRoom(roomId);
+
+    let room = getRoom(roomId);
+    if (!room) {
+      room = createRoomRecord(roomId, roomId, null);
+      rooms.set(roomId, room);
+    }
     room.viewers += 1;
 
     const isHost = !room.hostId;
@@ -197,275 +215,404 @@ io.on('connection', (socket) => {
 
   socket.emit('rooms-updated', getPublicRoomsList());
 
+  // ── Служебные события ──────────────────────────────────────
   socket.on('get-rooms', () => {
     socket.emit('rooms-updated', getPublicRoomsList());
   });
 
-  // ── Обработка ивентов синхронизации ────────────────────────
-  // Только хост может управлять видео (как в Rave)
+  socket.on('PING', ({ clientTime } = {}) => {
+    socket.emit('PONG', { clientTime, serverTime: Date.now() });
+  });
 
-  if (hasRoom) {
-    socket.on('PLAY', (data) => {
-      if (socket.id !== room.hostId) {
-        socket.emit('ERROR', { message: 'Только хост может управлять видео' });
-        return;
-      }
+  // ── Безопасное создание комнаты ─────────────────────────────
+  socket.on('create-room', (data, callback) => {
+    try {
+      const roomId = 'r_' + Math.random().toString(36).substring(2, 9);
+      const newRoom = createRoomRecord(roomId, data && data.name, socket.id);
 
-      const payload = normalizePayload(data);
-      const pos = typeof payload.time === 'number' ? payload.time : getCurrentPosition(room);
+      rooms.set(roomId, newRoom);
+      socket.join(roomId);
+      socket.currentRoomId = roomId;
 
-      room.isPlaying = true;
-      room.position = pos;
-      room.startedAt = Date.now();
+      // Сообщаем клиенту, что он теперь хост созданной комнаты
+      socket.emit('hello', {
+        roomId,
+        socketId: socket.id,
+        isHost: true,
+        viewers: 1,
+        message: 'Комната создана'
+      });
 
-      console.log(`▶  PLAY   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-      io.to(roomId).emit('ROOM_STATE', getRoomState(room));
+      // Отдаем клиенту подтверждение с ID созданной комнаты
+      if (typeof callback === 'function') callback({ success: true, roomId });
+
+      io.emit('rooms-updated', getPublicRoomsList());
+    } catch (err) {
+      console.error('Create room error:', err);
+    }
+  });
+
+  // ── Безопасное подключение к комнате ────────────────────────
+  socket.on('join-room', (data) => {
+    const roomId = (data && data.roomId) || socket.currentRoomId;
+    const room = getRoom(roomId);
+    if (!room) {
+      socket.emit('error-msg', 'Комната не найдена');
+      return;
+    }
+
+    const alreadyInRoom = Boolean(io.sockets.adapter.rooms.get(roomId)?.has(socket.id));
+    socket.join(roomId);
+    socket.currentRoomId = roomId;
+    if (!room.users) room.users = new Map();
+    room.users.set(socket.id, { id: socket.id });
+    if (!alreadyInRoom) room.viewers += 1;
+
+    socket.emit('hello', {
+      roomId,
+      socketId: socket.id,
+      isHost: room.hostId === socket.id,
+      viewers: room.viewers,
+      message: 'Подключено к комнате синхронизации'
     });
 
-    socket.on('PAUSE', (data) => {
-      if (socket.id !== room.hostId) {
-        socket.emit('ERROR', { message: 'Только хост может управлять видео' });
-        return;
-      }
+    // Отправляем текущее состояние видео новенькому
+    socket.emit('ROOM_STATE', getRoomState(room));
 
-      const payload = normalizePayload(data);
-      const pos = getCurrentPosition(room);
+    io.emit('rooms-updated', getPublicRoomsList());
+  });
 
+  // ── Чат (безопасная отправка сообщений) ────────────────────
+  // ПРЕДОТВРАЩАЕТ ПАДЕНИЕ СЕРВЕРА при обращении к несуществующей комнате.
+  socket.on('send-message', (data) => {
+    if (!data || typeof data !== 'object') return;
+    const room = getRoom(data.roomId);
+    if (!room || !data.text) return;
+
+    const text = String(data.text).trim();
+    if (!text) return;
+
+    const payload = {
+      id: `${socket.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+      senderId: socket.id,
+      sender: String(data.sender || 'Гость').slice(0, 64),
+      text,
+      timestamp: Date.now(),
+    };
+
+    room.messages.push(payload);
+    if (room.messages.length > 50) room.messages.shift();
+
+    io.to(data.roomId).emit('new-message', payload);
+  });
+
+  // ── Смена видео (безопасная) ────────────────────────────────
+  socket.on('change-video', ({ roomId, url } = {}) => {
+    const room = getRoom(roomId);
+    if (!room) return;
+
+    room.currentUrl = url;
+    room.position = 0;
+    room.isPlaying = true;
+    room.startedAt = Date.now();
+
+    io.to(roomId).emit('video-changed', { url, position: 0, isPlaying: true });
+  });
+
+  // ── Выход из комнаты ────────────────────────────────────────
+  socket.on('leave-room', () => {
+    console.log(`🚶 LEAVE  | ${socket.id} | room=${socket.currentRoomId || '—'}`);
+    socket.currentRoomId = null;
+    broadcastRoomsUpdate();
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // ОБРАБОТКА ИВЕНТОВ СИНХРОНИЗАЦИИ
+  // Регистрируются для КАЖДОГО сокета. Комната резолвится динамически
+  // через socket.currentRoomId — поэтому хендлеры работают и для
+  // соединений без ?room= в query (например, после create-room/join-room).
+  // Только хост может управлять видео (как в Rave).
+  // ─────────────────────────────────────────────────────────────
+
+  socket.on('PLAY', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
+
+    const payload = normalizePayload(data);
+    const pos = typeof payload.time === 'number' ? payload.time : getCurrentPosition(room);
+
+    room.isPlaying = true;
+    room.position = pos;
+    room.startedAt = Date.now();
+
+    console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${pos.toFixed(1)}`);
+    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+  });
+
+  socket.on('PAUSE', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
+
+    const payload = normalizePayload(data);
+    const pos = getCurrentPosition(room);
+
+    room.isPlaying = false;
+    room.position = pos;
+    room.startedAt = 0;
+
+    console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${pos.toFixed(1)}`);
+    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+  });
+
+  socket.on('SEEK', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
+
+    const payload = normalizePayload(data);
+    const pos = typeof payload.time === 'number' ? payload.time : 0;
+
+    room.position = pos;
+    if (room.isPlaying) {
+      room.startedAt = Date.now();
+    }
+
+    console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${pos.toFixed(1)}`);
+    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+  });
+
+  socket.on('CHANGE_MEDIA', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может менять видео' });
+      return;
+    }
+
+    const payload = normalizePayload(data);
+    const url = String(payload.url || '').slice(0, 2000);
+    const type = String(payload.mediaType || '').slice(0, 32);
+
+    if (!url) return;
+
+    room.currentUrl = url;
+    room.currentType = type;
+    room.isPlaying = true;
+    room.position = 0;
+    room.startedAt = Date.now();
+
+    console.log(`🎬 MEDIA  | ${socket.id} | room=${currentId} | ${type} | ${url.slice(0, 60)}`);
+    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+  });
+
+  // ── Периодическая синхронизация времени от хоста ─────────────
+  socket.on('sync-video', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может отправлять синхронизацию' });
+      return;
+    }
+
+    const currentTime = typeof data.currentTime === 'number' ? data.currentTime : getCurrentPosition(room);
+    const isPaused = typeof data.isPaused === 'boolean' ? data.isPaused : !room.isPlaying;
+
+    room.position = currentTime;
+    if (!isPaused && !room.isPlaying) {
+      room.isPlaying = true;
+      room.startedAt = Date.now();
+    } else if (isPaused && room.isPlaying) {
       room.isPlaying = false;
-      room.position = pos;
       room.startedAt = 0;
+    }
 
-      console.log(`⏸  PAUSE  | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-      io.to(roomId).emit('ROOM_STATE', getRoomState(room));
+    io.to(currentId).emit('sync-video-client', {
+      currentTime,
+      isPaused,
+      serverTimestamp: Date.now(),
     });
+  });
 
-    socket.on('SEEK', (data) => {
-      if (socket.id !== room.hostId) {
-        socket.emit('ERROR', { message: 'Только хост может управлять видео' });
-        return;
+  // ── Очередь видео ──────────────────────────────────────────
+  socket.on('ADD_TO_QUEUE', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может добавлять в очередь' });
+      return;
+    }
+
+    const url = String(data?.url || '').slice(0, 2000);
+    const type = String(data?.mediaType || '').slice(0, 32);
+    if (!url) return;
+
+    room.queue.push({ url, type });
+    console.log(`➕ QUEUE  | ${socket.id} | room=${currentId} | добавлено: ${url.slice(0, 50)}`);
+
+    io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
+  });
+
+  socket.on('REMOVE_FROM_QUEUE', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) return;
+
+    const index = Number(data?.index);
+    if (Number.isInteger(index) && index >= 0 && index < room.queue.length) {
+      room.queue.splice(index, 1);
+      io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
+    }
+  });
+
+  socket.on('NEXT_IN_QUEUE', () => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) return;
+
+    const next = room.queue.shift();
+    if (!next) return;
+
+    room.currentUrl = next.url;
+    room.currentType = next.type;
+    room.isPlaying = true;
+    room.position = 0;
+    room.startedAt = Date.now();
+
+    console.log(`⏭ NEXT   | ${socket.id} | room=${currentId} | ${next.url.slice(0, 50)}`);
+
+    io.to(currentId).emit('CHANGE_MEDIA', {
+      url: next.url,
+      mediaType: next.type,
+      time: 0,
+      serverTime: Date.now(),
+    });
+    io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
+  });
+
+  // ── Чат ─────────────────────────────────────────────────────
+  socket.on('CHAT', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    const payload = normalizeChat(data, socket.id);
+    if (!payload) return;
+
+    room.messages.push(payload);
+    if (room.messages.length > 50) room.messages.shift();
+
+    console.log(`💬 CHAT   | ${socket.id} | room=${currentId}`, payload.text);
+    io.to(currentId).emit('CHAT', payload);
+  });
+
+  // ── Реакции на сообщения ───────────────────────────────────
+  socket.on('send-message-reaction', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    const messageId = String(data?.messageId || '');
+    const emoji = String(data?.emoji || '');
+    if (!messageId || !emoji) return;
+
+    if (!room.reactions) room.reactions = {};
+    if (!room.reactions[messageId]) room.reactions[messageId] = {};
+
+    const emojiKey = emoji;
+    if (!room.reactions[messageId][emojiKey]) {
+      room.reactions[messageId][emojiKey] = [];
+    }
+
+    const userIndex = room.reactions[messageId][emojiKey].indexOf(socket.id);
+    if (userIndex >= 0) {
+      room.reactions[messageId][emojiKey].splice(userIndex, 1);
+      if (room.reactions[messageId][emojiKey].length === 0) {
+        delete room.reactions[messageId][emojiKey];
       }
+    } else {
+      room.reactions[messageId][emojiKey].push(socket.id);
+    }
 
-      const payload = normalizePayload(data);
-      const pos = typeof payload.time === 'number' ? payload.time : 0;
-
-      room.position = pos;
-      if (room.isPlaying) {
-        room.startedAt = Date.now();
-      }
-
-      console.log(`⏩ SEEK   | ${socket.id} | room=${roomId} | pos=${pos.toFixed(1)}`);
-      io.to(roomId).emit('ROOM_STATE', getRoomState(room));
+    io.to(currentId).emit('message-reaction-updated', {
+      messageId,
+      emoji,
+      userId: socket.id,
+      reactions: room.reactions[messageId],
     });
+  });
 
-    socket.on('CHANGE_MEDIA', (data) => {
-      if (socket.id !== room.hostId) {
-        socket.emit('ERROR', { message: 'Только хост может менять видео' });
-        return;
-      }
+  // ── Пиры ────────────────────────────────────────────────────
+  socket.on('GET_PEERS', () => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
 
-      const payload = normalizePayload(data);
-      const url = String(payload.url || '').slice(0, 2000);
-      const type = String(payload.mediaType || '').slice(0, 32);
+    const peers = [...io.sockets.adapter.rooms.get(currentId) || []]
+      .filter((id) => id !== socket.id);
+    socket.emit('PEERS', { peers, count: peers.length, hostId: room.hostId });
+  });
 
-      if (!url) return;
+  // ── Отключение ──────────────────────────────────────────────
+  socket.on('disconnect', (reason) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
 
-      room.currentUrl = url;
-      room.currentType = type;
-      room.isPlaying = true;
-      room.position = 0;
-      room.startedAt = Date.now();
+    room.viewers = Math.max(0, room.viewers - 1);
 
-      console.log(`🎬 MEDIA  | ${socket.id} | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
-      io.to(roomId).emit('ROOM_STATE', getRoomState(room));
-    });
+    console.log(
+      `[-] ${socket.id} отключился из "${currentId}" ` +
+      `(причина: ${reason}; зрителей: ${room.viewers})`
+    );
 
-    // ── Периодическая синхронизация времени от хоста ─────────────
-    socket.on('sync-video', (data) => {
-      if (socket.id !== room.hostId) {
-        socket.emit('ERROR', { message: 'Только хост может отправлять синхронизацию' });
-        return;
-      }
+    socket.to(currentId).emit('USER_LEFT', { id: socket.id, viewers: room.viewers });
 
-      const currentTime = typeof data.currentTime === 'number' ? data.currentTime : getCurrentPosition(room);
-      const isPaused = typeof data.isPaused === 'boolean' ? data.isPaused : !room.isPlaying;
-
-      room.position = currentTime;
-      if (!isPaused && !room.isPlaying) {
-        room.isPlaying = true;
-        room.startedAt = Date.now();
-      } else if (isPaused && room.isPlaying) {
-        room.isPlaying = false;
-        room.startedAt = 0;
-      }
-
-      io.to(roomId).emit('sync-video-client', {
-        currentTime,
-        isPaused,
-        serverTimestamp: Date.now(),
-      });
-    });
-
-    // ── Управление публичными комнатами ─────────────────────────
-    socket.on('create-room', (data) => {
-      const name = String(data?.name || roomId).slice(0, 64);
-      room.name = name || roomId;
-      console.log(`🏠 CREATE | ${socket.id} | room=${roomId} | name=${room.name}`);
-      broadcastRoomsUpdate();
-    });
-
-    socket.on('join-room', () => {
-      console.log(`🚪 JOIN   | ${socket.id} | room=${roomId}`);
-      broadcastRoomsUpdate();
-    });
-
-    socket.on('leave-room', () => {
-      console.log(`🚶 LEAVE  | ${socket.id} | room=${roomId}`);
-      broadcastRoomsUpdate();
-    });
-
-    // ── Очередь видео ──────────────────────────────────────────
-    socket.on('ADD_TO_QUEUE', (data) => {
-      if (socket.id !== room.hostId) {
-        socket.emit('ERROR', { message: 'Только хост может добавлять в очередь' });
-        return;
-      }
-
-      const url = String(data?.url || '').slice(0, 2000);
-      const type = String(data?.mediaType || '').slice(0, 32);
-      if (!url) return;
-
-      room.queue.push({ url, type });
-      console.log(`➕ QUEUE  | ${socket.id} | room=${roomId} | добавлено: ${url.slice(0, 50)}`);
-
-      io.to(roomId).emit('QUEUE_UPDATED', { queue: room.queue });
-    });
-
-    socket.on('REMOVE_FROM_QUEUE', (data) => {
-      if (socket.id !== room.hostId) return;
-
-      const index = Number(data?.index);
-      if (Number.isInteger(index) && index >= 0 && index < room.queue.length) {
-        room.queue.splice(index, 1);
-        io.to(roomId).emit('QUEUE_UPDATED', { queue: room.queue });
-      }
-    });
-
-    socket.on('NEXT_IN_QUEUE', () => {
-      if (socket.id !== room.hostId) return;
-
-      const next = room.queue.shift();
-      if (!next) return;
-
-      room.currentUrl = next.url;
-      room.currentType = next.type;
-      room.isPlaying = true;
-      room.position = 0;
-      room.startedAt = Date.now();
-
-      console.log(`⏭ NEXT   | ${socket.id} | room=${roomId} | ${next.url.slice(0, 50)}`);
-
-      io.to(roomId).emit('CHANGE_MEDIA', {
-        url: next.url,
-        mediaType: next.type,
-        time: 0,
-        serverTime: Date.now(),
-      });
-      io.to(roomId).emit('QUEUE_UPDATED', { queue: room.queue });
-    });
-
-    // ── Чат ─────────────────────────────────────────────────────
-    socket.on('CHAT', (data) => {
-      const payload = normalizeChat(data, socket.id);
-      if (!payload) return;
-
-      room.messages.push(payload);
-      if (room.messages.length > 50) room.messages.shift();
-
-      console.log(`💬 CHAT   | ${socket.id} | room=${roomId}`, payload.text);
-      io.to(roomId).emit('CHAT', payload);
-    });
-
-    socket.on('send-message', (data) => {
-      const payload = normalizeChat(data, socket.id);
-      if (!payload) return;
-
-      room.messages.push(payload);
-      if (room.messages.length > 50) room.messages.shift();
-
-      console.log(`💬 CHAT   | ${socket.id} | room=${roomId}`, payload.text);
-      io.to(roomId).emit('CHAT', payload);
-    });
-
-    // ── Реакции на сообщения ───────────────────────────────────
-    socket.on('send-message-reaction', (data) => {
-      const messageId = String(data?.messageId || '');
-      const emoji = String(data?.emoji || '');
-      if (!messageId || !emoji) return;
-
-      if (!room.reactions) room.reactions = {};
-      if (!room.reactions[messageId]) room.reactions[messageId] = {};
-
-      const emojiKey = emoji;
-      if (!room.reactions[messageId][emojiKey]) {
-        room.reactions[messageId][emojiKey] = [];
-      }
-
-      const userIndex = room.reactions[messageId][emojiKey].indexOf(socket.id);
-      if (userIndex >= 0) {
-        room.reactions[messageId][emojiKey].splice(userIndex, 1);
-        if (room.reactions[messageId][emojiKey].length === 0) {
-          delete room.reactions[messageId][emojiKey];
-        }
+    if (room.hostId === socket.id) {
+      const remaining = [...io.sockets.adapter.rooms.get(currentId) || []];
+      if (remaining.length > 0) {
+        room.hostId = remaining[0];
+        console.log(`👑 Новый хост комнаты "${currentId}": ${room.hostId}`);
+        io.to(currentId).emit('HOST_CHANGED', { hostId: room.hostId });
       } else {
-        room.reactions[messageId][emojiKey].push(socket.id);
+        room.hostId = null;
       }
+    }
 
-      io.to(roomId).emit('message-reaction-updated', {
-        messageId,
-        emoji,
-        userId: socket.id,
-        reactions: room.reactions[messageId],
-      });
-    });
+    const remainingAfter = [...io.sockets.adapter.rooms.get(currentId) || []];
+    if (remainingAfter.length === 0) {
+      rooms.delete(currentId);
+      console.log(`[🗑] Комната "${currentId}" удалена (пуста)`);
+    }
 
-    // ── Пиры ────────────────────────────────────────────────────
-    socket.on('GET_PEERS', () => {
-      const peers = [...io.sockets.adapter.rooms.get(roomId) || []]
-        .filter((id) => id !== socket.id);
-      socket.emit('PEERS', { peers, count: peers.length, hostId: room.hostId });
-    });
-
-    // ── Отключение ──────────────────────────────────────────────
-    socket.on('disconnect', (reason) => {
-      room.viewers = Math.max(0, room.viewers - 1);
-
-      console.log(
-        `[-] ${socket.id} отключился из "${roomId}" ` +
-        `(причина: ${reason}; зрителей: ${room.viewers})`
-      );
-
-      socket.to(roomId).emit('USER_LEFT', { id: socket.id, viewers: room.viewers });
-
-      if (room.hostId === socket.id) {
-        const remaining = [...io.sockets.adapter.rooms.get(roomId) || []];
-        if (remaining.length > 0) {
-          room.hostId = remaining[0];
-          console.log(`👑 Новый хост комнаты "${roomId}": ${room.hostId}`);
-          io.to(roomId).emit('HOST_CHANGED', { hostId: room.hostId });
-        } else {
-          room.hostId = null;
-        }
-      }
-
-      const remainingAfter = [...io.sockets.adapter.rooms.get(roomId) || []];
-      if (remainingAfter.length === 0) {
-        rooms.delete(roomId);
-        console.log(`[🗑] Комната "${roomId}" удалена (пуста)`);
-      }
-
-      broadcastRoomsUpdate();
-    });
-  }
+    broadcastRoomsUpdate();
+  });
 
   socket.on('error', (err) => {
     console.error(`[!] Ошибка сокета ${socket.id}:`, err.message);

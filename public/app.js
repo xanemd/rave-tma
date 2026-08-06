@@ -21,6 +21,10 @@
 
 'use strict';
 
+// ID текущей комнаты (глобально). Критично для отправки сообщений
+// и защиты от обращения к серверу с undefined roomId.
+window.currentRoomId = null;
+
 /* ═══════════════════════════════════════════════════════════
    0. КОНСТАНТЫ И СОСТОЯНИЕ
    ═══════════════════════════════════════════════════════════ */
@@ -408,6 +412,64 @@ function resetPlayers(keepVisible = false) {
       `;
     }
   }
+}
+
+/**
+ * Извлекает YouTube video ID из ссылки (упрощённый парсер для renderPlayer).
+ */
+function extractYouTubeId(url) {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname === 'youtu.be') {
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      return parts[0] || null;
+    }
+    const v = parsed.searchParams.get('v');
+    if (v) return v;
+    const m = parsed.pathname.match(/^\/(?:shorts|embed|live)\/([^/]+)/);
+    if (m) return m[1];
+  } catch (e) { /* ignore */ }
+  return null;
+}
+
+/**
+ * Монтирует плеер в DOM: iframe для YouTube / video для прямых ссылок.
+ * Критично для инициализации плеера при получении ROOM_STATE / video-changed.
+ */
+function renderPlayer(url) {
+  const container = document.getElementById('player-container');
+  const welcome = document.getElementById('welcome-screen') || document.getElementById('placeholder');
+
+  if (!container) return;
+  if (welcome) welcome.style.display = 'none';
+  container.style.display = 'block';
+
+  if (!url) {
+    if (welcome) welcome.style.display = 'block';
+    container.style.display = 'none';
+    return;
+  }
+
+  const ytId = extractYouTubeId(url);
+  if (ytId) {
+    container.innerHTML = `<iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&playsinline=1" style="width:100%;height:100%;border:0;" allow="autoplay" allowfullscreen></iframe>`;
+  } else {
+    container.innerHTML = `<video src="${url}" controls autoplay playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>`;
+  }
+}
+
+/**
+ * Проверяет, смонтирован ли плеер через богатый пайплайн
+ * (ytPlayerHost / videoHost / iframeHost).
+ */
+function isMediaMounted() {
+  const ytHost = $('#ytPlayerHost');
+  const videoHost = $('#videoHost');
+  const iframeHost = $('#iframeHost');
+  if (ytHost && !ytHost.classList.contains('hidden')) return true;
+  if (videoHost && !videoHost.classList.contains('hidden')) return true;
+  if (iframeHost && !iframeHost.classList.contains('hidden')) return true;
+  return false;
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -846,7 +908,8 @@ function connectSocket() {
     showSnack('🟢 Подключено к лобби');
     startClockSync();
     if (state.roomId) {
-      s.emit('join-room');
+      window.currentRoomId = state.roomId;
+      s.emit('join-room', { roomId: state.roomId });
     }
     flushPendingSocketEvents();
   });
@@ -958,7 +1021,19 @@ function connectSocket() {
   s.on('init-room-state', applyRoomState);
 
   // Фолбэк: если сервер/старый клиент ещё шлёт ROOM_STATE
-  s.on('ROOM_STATE', applyRoomState);
+  s.on('ROOM_STATE', (data) => {
+    applyRoomState(data);
+    // Гарантия монтирования плеера (фолбэк, если rich-пайплайн не сработал)
+    if (data && data.currentUrl && !isMediaMounted()) {
+      renderPlayer(data.currentUrl);
+    }
+  });
+
+  // ── Смена видео (простой путь) ─────────────────────────────
+  s.on('video-changed', ({ url } = {}) => {
+    console.log('[Socket] video-changed ←', url);
+    renderPlayer(url);
+  });
 
   // ── Смена хоста ────────────────────────────────────────────
   s.on('HOST_CHANGED', ({ hostId }) => {
@@ -1043,6 +1118,11 @@ function connectSocket() {
   s.on('CHAT', (data) => {
     console.log('[Chat] ←', data);
     addChatMessage(data, false);
+  });
+
+  s.on('new-message', (data) => {
+    console.log('[Chat] new-message ←', data);
+    addChatMessage(data, data.senderId === state.socket?.id);
   });
 
   s.on('CHAT_HISTORY', ({ messages }) => {
@@ -1619,6 +1699,16 @@ function updateConnUI(connected) {
     : 'Нет соединения';
 }
 
+function joinRoom(roomId) {
+  if (!roomId) return;
+  window.currentRoomId = roomId;
+  state.roomId = roomId;
+  if (state.socket && state.connected) {
+    state.socket.emit('join-room', { roomId });
+  }
+  showRoomView();
+}
+
 function showRoomView() {
   const el = els.roomViewScreen;
   if (el) {
@@ -1772,6 +1862,7 @@ function renderRoomsList(rooms) {
       const roomId = btn.dataset.room;
       if (!roomId) return;
       state.roomId = roomId;
+      window.currentRoomId = roomId;
       els.roomBadge.textContent = state.roomId;
       els.roomBadge.title = 'Комната: ' + state.roomId;
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
@@ -2185,38 +2276,42 @@ function formatTime(ts) {
   }
 }
 
-function sendChatMessage() {
+function sendMessage() {
+  const input = document.getElementById('chat-input') || els.chatInput;
+  if (!input) return;
+
+  const text = input.value.trim();
+  // Проверяем наличие валидной комнаты перед отправкой сокета
+  if (!text || !window.currentRoomId) {
+    console.warn('Отмена отправки: нет текста или currentRoomId = null');
+    return;
+  }
+
+  const payload = {
+    roomId: window.currentRoomId,
+    text,
+    sender: state.userName,
+  };
+
+  if (state.replyTo) {
+    payload.replyToId = state.replyTo.id;
+    payload.replyToText = state.replyTo.text;
+    cancelReply();
+  }
+
   try {
-    if (!state.socket || !state.connected) {
-      showSnack('⚠️ Нет соединения с сервером');
-      return;
-    }
-
-    const input = els.chatInput;
-    if (!input) return;
-
-    const text = input.value.trim();
-    if (!text) return;
-
-    const payload = {
-      text,
-      sender: state.userName,
-    };
-
-    if (state.replyTo) {
-      payload.replyToId = state.replyTo.id;
-      payload.replyToText = state.replyTo.text;
-      cancelReply();
-    }
-
-    console.log('[Chat] Отправка:', payload.text);
-    state.socket.emit('CHAT', payload);
-
-    input.value = '';
-    input.focus();
+    console.log('[Chat] Отправка:', text);
+    state.socket.emit('send-message', payload);
   } catch (err) {
     console.error('[Chat] Ошибка при отправке сообщения:', err);
   }
+
+  input.value = '';
+  input.focus();
+}
+
+function sendChatMessage() {
+  sendMessage();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2302,6 +2397,7 @@ function joinRoomByCode() {
 
   // Переключаем комнату: переподключаемся с новым room_id
   state.roomId = roomId;
+  window.currentRoomId = roomId;
   els.roomBadge.textContent = state.roomId;
   els.roomBadge.title = 'Комната: ' + state.roomId;
   els.myRoomCode.textContent = state.roomId;
@@ -2334,6 +2430,7 @@ function bindUI() {
       }
 
       state.roomId = inputVal;
+      window.currentRoomId = inputVal;
       els.roomBadge.textContent = state.roomId;
       els.roomBadge.title = 'Комната: ' + state.roomId;
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
@@ -2398,6 +2495,7 @@ function bindUI() {
 
       const newRoomId = generateRoomId();
       state.roomId = newRoomId;
+      window.currentRoomId = newRoomId;
       els.roomBadge.textContent = state.roomId;
       els.roomBadge.title = 'Комната: ' + state.roomId;
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
@@ -2418,7 +2516,15 @@ function bindUI() {
 
       setTimeout(() => {
         if (state.socket && state.connected) {
-          state.socket.emit('create-room', { name: newRoomId });
+          state.socket.emit('create-room', { name: newRoomId }, (res) => {
+            if (res && res.roomId) {
+              window.currentRoomId = res.roomId;
+              state.roomId = res.roomId;
+              els.roomBadge.textContent = state.roomId;
+              els.roomBadge.title = 'Комната: ' + state.roomId;
+              if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+            }
+          });
         }
       }, 300);
 
@@ -2432,6 +2538,7 @@ function bindUI() {
       const roomId = btn.dataset.room;
       if (!roomId) return;
       state.roomId = roomId;
+      window.currentRoomId = roomId;
       els.roomBadge.textContent = state.roomId;
       els.roomBadge.title = 'Комната: ' + state.roomId;
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
@@ -2692,6 +2799,7 @@ setTimeout(spawnCompliment, 20000);
   if (startParam) {
     setTimeout(() => {
       state.roomId = startParam;
+      window.currentRoomId = startParam;
       els.roomBadge.textContent = state.roomId;
       els.roomBadge.title = 'Комната: ' + state.roomId;
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
