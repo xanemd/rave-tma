@@ -306,27 +306,20 @@ io.on('connection', (socket) => {
 
   // ── Чат (безопасная отправка сообщений) ────────────────────
   // ПРЕДОТВРАЩАЕТ ПАДЕНИЕ СЕРВЕРА при обращении к несуществующей комнате.
-  socket.on('send-message', (data) => {
-    if (!data || typeof data !== 'object') return;
-    const room = getRoom(data.roomId);
-    if (!room || !data.text) return;
+    socket.on('send-message', (data) => {
+      const currentId = socket.currentRoomId;
+      const room = getRoom(currentId);
+      if (!room) return;
 
-    const text = String(data.text).trim();
-    if (!text) return;
+      const payload = normalizeChat(data, socket.id);
+      if (!payload) return;
 
-    const payload = {
-      id: `${socket.id}_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-      senderId: socket.id,
-      sender: String(data.sender || 'Гость').slice(0, 64),
-      text,
-      timestamp: Date.now(),
-    };
+      room.messages.push(payload);
+      if (room.messages.length > 50) room.messages.shift();
 
-    room.messages.push(payload);
-    if (room.messages.length > 50) room.messages.shift();
-
-    io.to(data.roomId).emit('new-message', payload);
-  });
+      console.log(`💬 CHAT   | ${socket.id} | room=${currentId}`, payload.text);
+      io.to(currentId).emit('CHAT', payload);
+    });
 
   // ── Смена видео (безопасная) ────────────────────────────────
   socket.on('change-video', ({ roomId, url } = {}) => {
@@ -673,6 +666,7 @@ function normalizeChat(data, socketId) {
     time: Date.now(),
     replyToId: data.replyToId ? String(data.replyToId).slice(0, 100) : null,
     replyToText: data.replyToText ? String(data.replyToText).slice(0, 200) : null,
+    replyToSender: data.replyToSender ? String(data.replyToSender).slice(0, 64) : null,
   };
 }
 

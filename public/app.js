@@ -1210,7 +1210,7 @@ function connectSocket() {
   // ── Чат ───────────────────────────────────────────────────
   s.on('CHAT', (data) => {
     console.log('[Chat] ←', data);
-    addChatMessage(data, false);
+    addChatMessage(data, data.socketId === state.socket?.id);
   });
 
   s.on('new-message', (data) => {
@@ -1987,6 +1987,8 @@ function checkChatEmpty() {
 function addChatMessage(msg, mine = false) {
   if (!msg || !msg.text) return;
 
+  console.log('[Chat] addChatMessage', msg.id, msg.time, msg.replyToId, msg.replyToText, msg.replyToSender);
+
   // Дедупликация: не добавляем сообщение, если оно уже есть
   if (msg.id && state.messages.some(m => m.id === msg.id)) {
     return;
@@ -2010,7 +2012,7 @@ function addChatMessage(msg, mine = false) {
   if (msg.replyToId && msg.replyToText) {
     replyHtml = `
       <div class="reply-quote">
-        <span class="reply-author">${escapeHtml(msg.sender || 'Гость')}</span>
+        <span class="reply-author">${escapeHtml(msg.replyToSender || 'Гость')}</span>
         <span class="reply-text">${escapeHtml(msg.replyToText.slice(0, 50))}</span>
       </div>
     `;
@@ -2389,6 +2391,7 @@ function sendMessage() {
   if (state.replyTo) {
     payload.replyToId = state.replyTo.id;
     payload.replyToText = state.replyTo.text;
+    payload.replyToSender = state.replyTo.sender;
     cancelReply();
   }
 
