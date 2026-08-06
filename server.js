@@ -47,7 +47,6 @@ app.get('/', (req, res) => {
 // ─────────────────────────────────────────────────────────────
 // КОМНАТЫ И СОСТОЯНИЕ
 // ─────────────────────────────────────────────────────────────
-const DEFAULT_ROOM = 'main_room';
 
 // Состояние каждой комнаты:
 // {
@@ -61,7 +60,8 @@ const DEFAULT_ROOM = 'main_room';
 //   viewers: 0,
 //   messages: [],         // история чата
 //   reactions: {},        // реакции на сообщения { messageId: { emoji: [userIds] } }
-//   createdAt: Date.now()
+//   createdAt: Date.now(),
+//   name: ''              // отображаемое имя комнаты
 // }
 const rooms = new Map();
 
@@ -79,9 +79,28 @@ function getRoom(roomId) {
       messages: [],
       reactions: {},
       createdAt: Date.now(),
+      name: roomId,
     });
   }
   return rooms.get(roomId);
+}
+
+function getPublicRoomsList() {
+  const list = [];
+  for (const [id, room] of rooms.entries()) {
+    const usersCount = io.sockets.adapter.rooms.get(id)?.size || 0;
+    list.push({
+      id,
+      name: room.name || id,
+      hostId: room.hostId,
+      usersCount,
+    });
+  }
+  return list;
+}
+
+function broadcastRoomsUpdate() {
+  io.emit('rooms-updated', getPublicRoomsList());
 }
 
 /**
@@ -114,13 +133,17 @@ function getRoomState(room) {
 }
 
 io.on('connection', (socket) => {
-  const roomId = sanitizeRoom(socket.handshake.query.room) || DEFAULT_ROOM;
+  const roomId = sanitizeRoom(socket.handshake.query.room);
+  if (!roomId) {
+    socket.emit('ERROR', { message: 'Укажите комнату' });
+    socket.disconnect();
+    return;
+  }
   socket.join(roomId);
 
   const room = getRoom(roomId);
   room.viewers += 1;
 
-  // ── Роль хоста: первый участник комнаты становится хостом ──
   const isHost = !room.hostId;
   if (isHost) {
     room.hostId = socket.id;
@@ -131,7 +154,6 @@ io.on('connection', (socket) => {
     `(зрителей: ${room.viewers}, хост: ${room.hostId === socket.id ? 'ДА' : room.hostId})`
   );
 
-  // ── Приветствие + полное состояние комнаты ─────────────────
   socket.emit('hello', {
     roomId,
     socketId: socket.id,
@@ -140,7 +162,6 @@ io.on('connection', (socket) => {
     message: 'Подключено к комнате синхронизации'
   });
 
-  // Отдаём новичку полное состояние комнаты
   socket.emit('init-room-state', {
     currentUrl: room.currentUrl,
     currentType: room.currentType,
@@ -152,22 +173,21 @@ io.on('connection', (socket) => {
     viewers: room.viewers,
   });
 
-  // Отдаём историю чата
   if (room.messages.length > 0) {
     socket.emit('CHAT_HISTORY', { messages: room.messages.slice(-50) });
   }
 
-  // Отдаём все реакции
   if (Object.keys(room.reactions).length > 0) {
     socket.emit('ALL_REACTIONS', { reactions: room.reactions });
   }
 
-  // Сообщаем остальным, что новый участник зашёл
   socket.to(roomId).emit('USER_JOINED', {
     id: socket.id,
     isHost,
     viewers: room.viewers,
   });
+
+  broadcastRoomsUpdate();
 
   // ── Обработка ивентов синхронизации ────────────────────────
   // Только хост может управлять видео (как в Rave)
@@ -272,6 +292,28 @@ io.on('connection', (socket) => {
       isPaused,
       serverTimestamp: Date.now(),
     });
+  });
+
+  // ── Управление публичными комнатами ─────────────────────────
+  socket.on('create-room', (data) => {
+    const name = String(data?.name || roomId).slice(0, 64);
+    room.name = name || roomId;
+    console.log(`🏠 CREATE | ${socket.id} | room=${roomId} | name=${room.name}`);
+    broadcastRoomsUpdate();
+  });
+
+  socket.on('join-room', () => {
+    console.log(`🚪 JOIN   | ${socket.id} | room=${roomId}`);
+    broadcastRoomsUpdate();
+  });
+
+  socket.on('leave-room', () => {
+    console.log(`🚶 LEAVE  | ${socket.id} | room=${roomId}`);
+    broadcastRoomsUpdate();
+  });
+
+  socket.on('get-rooms', () => {
+    socket.emit('rooms-updated', getPublicRoomsList());
   });
 
   // ── Очередь видео ──────────────────────────────────────────
@@ -416,6 +458,8 @@ io.on('connection', (socket) => {
       rooms.delete(roomId);
       console.log(`[🗑] Комната "${roomId}" удалена (пуста)`);
     }
+
+    broadcastRoomsUpdate();
   });
 
   socket.on('error', (err) => {
@@ -467,6 +511,5 @@ server.listen(PORT, () => {
   console.log(`║   RAVE TMA — синхронный просмотр видео       ║`);
   console.log(`║   Сервер запущен: http://localhost:${PORT}       ║`);
   console.log(`╚══════════════════════════════════════════════╝\n`);
-  console.log(`Комната по умолчанию: "${DEFAULT_ROOM}"`);
   console.log(`Статика раздаётся из: ${path.join(__dirname, 'public')}`);
 });

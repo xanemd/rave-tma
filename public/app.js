@@ -839,6 +839,7 @@ function connectSocket() {
     showSnack('🟢 Подключено к комнате');
     startClockSync();
     flushPendingSocketEvents();
+    s.emit('join-room');
   });
 
   s.on('disconnect', (reason) => {
@@ -972,6 +973,12 @@ function connectSocket() {
     const targetTime = data.isPaused ? data.currentTime : data.currentTime + latency;
 
     applyVideoSync(targetTime, data.isPaused);
+  });
+
+  // ── Обновление списка комнат ────────────────────────────────
+  s.on('rooms-updated', (rooms) => {
+    console.log('[Socket] rooms-updated ←', rooms);
+    renderRoomsList(rooms);
   });
 
   // ── Очередь обновлена ──────────────────────────────────────
@@ -1735,6 +1742,51 @@ function renderDrawerPeers() {
   els.drawerPeers.innerHTML = peersHtml;
 }
 
+function renderRoomsList(rooms) {
+  const container = document.getElementById('roomList');
+  const emptyEl = document.getElementById('roomsEmpty');
+  if (!container) return;
+
+  if (!rooms || rooms.length === 0) {
+    container.innerHTML = '<div class="room-empty">Нет доступных комнат</div>';
+    return;
+  }
+
+  container.innerHTML = rooms.map(room => `
+    <div class="room-item" data-room="${escapeHtml(room.id)}">
+      <span class="room-item-icon">🎬</span>
+      <div class="room-item-info">
+        <span class="room-item-name">${escapeHtml(room.name || room.id)}</span>
+        <span class="room-item-sub">Участников: ${room.usersCount || 1}</span>
+      </div>
+      <button class="btn btn-primary btn-sm room-join" data-room="${escapeHtml(room.id)}" type="button">Войти</button>
+    </div>
+  `).join('');
+
+  // Перепривязываем обработчики на новые кнопки
+  container.querySelectorAll('.room-join').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const roomId = btn.dataset.room;
+      if (!roomId) return;
+      state.roomId = roomId;
+      els.roomBadge.textContent = state.roomId;
+      els.roomBadge.title = 'Комната: ' + state.roomId;
+      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+
+      if (state.socket) {
+        state.socket.emit('leave-room');
+        state.socket.disconnect();
+        state.socket = null;
+      }
+      connectSocket();
+
+      setActiveTab('rooms-tab');
+      showRoomView();
+      showSnack('🔑 Вошли в комнату: ' + roomId);
+    });
+  });
+}
+
 /* ═══════════════════════════════════════════════════════════
    14. ЧАТ
    ═══════════════════════════════════════════════════════════ */
@@ -2249,11 +2301,12 @@ function joinRoomByCode() {
   els.myRoomCode.textContent = state.roomId;
 
   // Переподключаемся к серверу с новой комнатой
-  if (state.socket) {
-    state.socket.disconnect();
-    state.socket = null;
-  }
-  connectSocket();
+      if (state.socket) {
+        state.socket.emit('leave-room');
+        state.socket.disconnect();
+        state.socket = null;
+      }
+      connectSocket();
 
   setActiveTab('rooms-tab');
   showRoomView();
@@ -2280,6 +2333,7 @@ function bindUI() {
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
 
       if (state.socket) {
+        state.socket.emit('leave-room');
         state.socket.disconnect();
         state.socket = null;
       }
@@ -2288,6 +2342,16 @@ function bindUI() {
       setActiveTab('rooms-tab');
       showRoomView();
       showSnack('🔑 Подключено к комнате: ' + inputVal);
+    });
+  }
+
+  // ── Обновление списка комнат ────────────────────────────────
+  const refreshRoomsBtn = document.getElementById('refreshRoomsBtn');
+  if (refreshRoomsBtn) {
+    refreshRoomsBtn.addEventListener('click', () => {
+      if (state.socket && state.connected) {
+        state.socket.emit('get-rooms');
+      }
     });
   }
 
@@ -2309,6 +2373,10 @@ function bindUI() {
         tab.style.display = tab.id === tabId ? 'flex' : 'none';
       });
 
+      if (tabId === 'rooms-tab' && state.socket && state.connected) {
+        state.socket.emit('get-rooms');
+      }
+
       // Haptic feedback при смене вкладки
       if (window.Telegram?.WebApp?.HapticFeedback) {
         window.Telegram.WebApp.HapticFeedback.selectionChanged();
@@ -2329,6 +2397,7 @@ function bindUI() {
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
 
       if (state.socket) {
+        state.socket.emit('leave-room');
         state.socket.disconnect();
         state.socket = null;
       }
@@ -2340,6 +2409,12 @@ function bindUI() {
       if (url) {
         loadVideoIntoPlayer(url);
       }
+
+      setTimeout(() => {
+        if (state.socket && state.connected) {
+          state.socket.emit('create-room', { name: newRoomId });
+        }
+      }, 300);
 
       showSnack('🚀 Комната создана: ' + newRoomId);
     });
@@ -2356,6 +2431,7 @@ function bindUI() {
       if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
 
       if (state.socket) {
+        state.socket.emit('leave-room');
         state.socket.disconnect();
         state.socket = null;
       }
