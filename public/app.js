@@ -1148,6 +1148,8 @@ function connectSocket() {
   // Сервер рассылает sync-state с серверным временем и timestamp ответа.
   // Клиент компенсирует ping, затем плавно подстраивает playbackRate.
   s.on('sync-state', ({ serverTime, isPlaying, serverTimestamp }) => {
+    if (state.isHost) return; // Хост — источник истины, не синхронизируемся сам с собой
+
     const player = getActivePlayer();
     if (!player) return;
 
