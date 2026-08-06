@@ -1266,3 +1266,49 @@ input {
   .app-header { padding-top: calc(4px + var(--safe-top)); gap: 4px; }
   .btn-sm { font-size: 10px; padding: 4px 8px; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   РОМАНТИЧНЫЕ ВЫЛЕТАЮЩИЕ КОМПЛИМЕНТЫ
+   ═══════════════════════════════════════════════════════════ */
+.floating-compliment {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+  background: linear-gradient(135deg, rgba(244, 63, 94, 0.9), rgba(236, 72, 153, 0.9));
+  padding: 8px 16px;
+  border-radius: 20px;
+  box-shadow: 0 4px 15px rgba(236, 72, 153, 0.4);
+  pointer-events: none;
+  z-index: 100;
+  white-space: nowrap;
+  opacity: 0;
+  animation: floatCompliment 5s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes floatCompliment {
+  0% {
+    bottom: 20px;
+    opacity: 0;
+    transform: translateX(-50%) scale(0.8);
+  }
+  15% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1.05);
+  }
+  25% {
+    transform: translateX(-50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    bottom: 180px;
+    opacity: 0;
+    transform: translateX(-50%) scale(0.95);
+  }
+}
