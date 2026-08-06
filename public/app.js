@@ -147,7 +147,6 @@ let snackbarTimer = null;
 function initTelegram() {
   if (!window.Telegram || !window.Telegram.WebApp) {
     console.warn('Telegram WebApp SDK недоступен — работаем в обычном браузере.');
-    if (!state.roomId) state.roomId = generateRoomId();
     return;
   }
 
@@ -175,8 +174,6 @@ function initTelegram() {
 
   if (roomFromTelegram && /^[a-zA-Z0-9_-]{1,64}$/.test(roomFromTelegram)) {
     state.roomId = roomFromTelegram;
-  } else if (!state.roomId) {
-    state.roomId = generateRoomId();
   }
 
   console.log('[Telegram] initData →', {
@@ -819,10 +816,11 @@ function formatTitle(url) {
 
 function connectSocket() {
   const socketUrl = window.location.origin;
+  const query = state.roomId ? { room: state.roomId } : {};
 
   state.socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
-    query: { room: state.roomId },
+    query,
     reconnection: true,
     reconnectionAttempts: Infinity,
     reconnectionDelay: 1000,
@@ -834,12 +832,14 @@ function connectSocket() {
   s.on('connect', () => {
     state.connected = true;
     updateConnUI(true);
-    console.log('[Socket] Подключено →', socketUrl, '| room:', state.roomId);
-    setStatus('🟢 Подключено к комнате');
-    showSnack('🟢 Подключено к комнате');
+    console.log('[Socket] Подключено →', socketUrl, '| room:', state.roomId || '(лобби)');
+    setStatus('🟢 Подключено к лобби');
+    showSnack('🟢 Подключено к лобби');
     startClockSync();
     flushPendingSocketEvents();
-    s.emit('join-room');
+    if (state.roomId) {
+      s.emit('join-room');
+    }
   });
 
   s.on('disconnect', (reason) => {
