@@ -231,6 +231,13 @@ io.on('connection', (socket) => {
       const newRoom = createRoomRecord(roomId, data && data.name, socket.id);
 
       rooms.set(roomId, newRoom);
+
+      // Покидаем предыдущую комнату (если была создана из query при подключении),
+      // чтобы socket не висел в двух комнатах и список комнат был корректным.
+      if (socket.currentRoomId && socket.currentRoomId !== roomId) {
+        socket.leave(socket.currentRoomId);
+      }
+
       socket.join(roomId);
       socket.currentRoomId = roomId;
 

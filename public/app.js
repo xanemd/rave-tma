@@ -579,17 +579,30 @@ function loadYouTubeVideo(videoId, autoplay = true) {
     return;
   }
 
-  const host = els.ytHost;
-  host.classList.remove('hidden');
-  showOnlyShell('yt');
-
   if (!state.ytReady) {
     state.pendingYouTubeVideoId = videoId;
     setStatus('⏳ YouTube API загружается…');
     hideLoading();
     tryLoadYouTubeApi();
+
+    // ── Fallback: если API не загрузился за 8 секунд (для гостей и хоста) —
+    //    монтируем обычный <iframe>, НЕ требующий API.
+    //    Это чинит случаи, когда ghcr/youtube заблокированы сетью.
+    setTimeout(() => {
+      if (!state.ytReady && !state.ytApiFailed && state.pendingYouTubeVideoId === videoId) {
+        console.warn('[YouTube] API не загрузился за 8с — iframe fallback:', videoId);
+        state.ytApiFailed = true;
+        state.pendingYouTubeVideoId = null;
+        renderPlayer('https://www.youtube.com/watch?v=' + videoId);
+        hideLoading();
+      }
+    }, 8000);
     return;
   }
+
+  const host = els.ytHost;
+  host.classList.remove('hidden');
+  showOnlyShell('yt');
 
   if (!state.ytPlayer) {
     host.innerHTML = `
@@ -2573,42 +2586,38 @@ function bindUI() {
     createRoomBtn.addEventListener('click', () => {
       const url = (document.getElementById('createRoomUrl')?.value || '').trim();
 
-      const newRoomId = generateRoomId();
-      state.roomId = newRoomId;
-      window.currentRoomId = newRoomId;
-      els.roomBadge.textContent = state.roomId;
-      els.roomBadge.title = 'Комната: ' + state.roomId;
-      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
-
-      if (state.socket) {
-        state.socket.emit('leave-room');
-        state.socket.disconnect();
-        state.socket = null;
-      }
-      connectSocket();
-
-      showRoomView();
-      setActiveTab('rooms-tab');
-
-      if (url) {
-        loadVideoIntoPlayer(url);
-      }
-
-      setTimeout(() => {
+      // НЕ переподключаемся с query room — создаём комнату на текущем сокете.
+      // Это чинит баг, когда socket висел в двух комнатах и комната не появлялась в списке.
+      const ensureSocket = () => {
         if (state.socket && state.connected) {
-          state.socket.emit('create-room', { name: newRoomId }, (res) => {
-            if (res && res.roomId) {
-              window.currentRoomId = res.roomId;
-              state.roomId = res.roomId;
-              els.roomBadge.textContent = state.roomId;
-              els.roomBadge.title = 'Комната: ' + state.roomId;
-              if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
-            }
-          });
+          state.socket.emit('create-room', { name: 'Моя комната' }, handleCreated);
+        } else {
+          connectSocket();
+          setTimeout(ensureSocket, 500);
         }
-      }, 300);
+      };
 
-      showSnack('🚀 Комната создана: ' + newRoomId);
+      const handleCreated = (res) => {
+        if (!res || !res.roomId) {
+          showSnack('❌ Не удалось создать комнату');
+          return;
+        }
+        state.roomId = res.roomId;
+        window.currentRoomId = res.roomId;
+        els.roomBadge.textContent = state.roomId;
+        els.roomBadge.title = 'Комната: ' + state.roomId;
+        if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+
+        showRoomView();
+        setActiveTab('rooms-tab');
+        showSnack('🚀 Комната создана: ' + res.roomId);
+
+        if (url) {
+          loadVideoIntoPlayer(url);
+        }
+      };
+
+      ensureSocket();
     });
   }
 
