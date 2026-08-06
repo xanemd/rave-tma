@@ -54,8 +54,8 @@ app.get('/', (req, res) => {
 //   currentUrl: '',
 //   currentType: null,
 //   isPlaying: false,
-//   position: 0,          // позиция в момент паузы (сек)
-//   startedAt: 0,         // серверное время начала воспроизведения (мс)
+//   anchorTime: 0,        // позиция видео в секундах на момент старта/перемотки/паузы
+//   anchorTimestamp: 0,   // время сервера (Date.now()) на момент старта/перемотки/паузы
 //   queue: [],            // очередь видео [{url, type}]
 //   viewers: 0,
 //   messages: [],         // история чата
@@ -83,8 +83,8 @@ function createRoomRecord(roomId, name, hostId) {
     currentUrl: '',
     currentType: null,
     isPlaying: false,
-    position: 0,
-    startedAt: 0,
+    anchorTime: 0,
+    anchorTimestamp: 0,
     queue: [],
     viewers: 1,
     users: new Map(),
@@ -115,15 +115,14 @@ function broadcastRoomsUpdate() {
 }
 
 /**
- * Вычисляет текущую позицию видео по серверному времени.
- * Если видео играет: position + (now - startedAt) / 1000
- * Если на паузе: position
+ * Server-side Master Clock: вычисляет текущую позицию видео по серверному времени.
+ * Если видео играет: anchorTime + (now - anchorTimestamp) / 1000
+ * Если на паузе: anchorTime
  */
-function getCurrentPosition(room) {
-  if (room.isPlaying && room.startedAt > 0) {
-    return Math.max(0, room.position + (Date.now() - room.startedAt) / 1000);
-  }
-  return room.position;
+function getRoomTime(room) {
+  if (!room.isPlaying) return room.anchorTime;
+  const now = Date.now();
+  return room.anchorTime + (now - room.anchorTimestamp) / 1000;
 }
 
 /**
@@ -135,11 +134,12 @@ function getRoomState(room) {
     currentUrl: room.currentUrl,
     currentType: room.currentType,
     isPlaying: room.isPlaying,
-    position: getCurrentPosition(room),
-    startedAt: room.startedAt,
+    anchorTime: room.anchorTime,
+    anchorTimestamp: room.anchorTimestamp,
+    serverTime: getRoomTime(room),
+    serverTimestamp: Date.now(),
     queue: room.queue,
     viewers: room.viewers,
-    serverTime: Date.now(),
   };
 }
 
@@ -182,10 +182,11 @@ io.on('connection', (socket) => {
     socket.emit('init-room-state', {
       currentUrl: room.currentUrl,
       currentType: room.currentType,
-      currentTime: getCurrentPosition(room),
+      serverTime: getRoomTime(room),
       isPlaying: room.isPlaying,
-      startedAt: room.startedAt,
-      serverTime: Date.now(),
+      anchorTime: room.anchorTime,
+      anchorTimestamp: room.anchorTimestamp,
+      serverTimestamp: Date.now(),
       queue: room.queue,
       viewers: room.viewers,
     });
@@ -327,11 +328,9 @@ io.on('connection', (socket) => {
     if (!room) return;
 
     room.currentUrl = url;
-    room.position = 0;
-    room.isPlaying = true;
-    room.startedAt = Date.now();
-
-    io.to(roomId).emit('video-changed', { url, position: 0, isPlaying: true });
+    room.anchorTime = 0;
+    room.anchorTimestamp = Date.now();
+    room.isPlaying = false;
   });
 
   // ── Выход из комнаты ────────────────────────────────────────
@@ -353,21 +352,24 @@ io.on('connection', (socket) => {
     const currentId = socket.currentRoomId;
     const room = getRoom(currentId);
     if (!room) return;
-
     if (socket.id !== room.hostId) {
       socket.emit('ERROR', { message: 'Только хост может управлять видео' });
       return;
     }
 
     const payload = normalizePayload(data);
-    const pos = typeof payload.time === 'number' ? payload.time : getCurrentPosition(room);
+    const time = typeof payload.time === 'number' ? payload.time : getRoomTime(room);
 
     room.isPlaying = true;
-    room.position = pos;
-    room.startedAt = Date.now();
+    room.anchorTime = time;
+    room.anchorTimestamp = Date.now();
 
-    console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${pos.toFixed(1)}`);
-    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+    console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
+    io.to(currentId).emit('sync-state', {
+      serverTime: getRoomTime(room),
+      isPlaying: true,
+      serverTimestamp: Date.now(),
+    });
   });
 
   socket.on('PAUSE', (data) => {
@@ -381,14 +383,18 @@ io.on('connection', (socket) => {
     }
 
     const payload = normalizePayload(data);
-    const pos = getCurrentPosition(room);
+    const time = typeof payload.time === 'number' ? payload.time : getRoomTime(room);
 
     room.isPlaying = false;
-    room.position = pos;
-    room.startedAt = 0;
+    room.anchorTime = time;
+    room.anchorTimestamp = Date.now();
 
-    console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${pos.toFixed(1)}`);
-    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+    console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
+    io.to(currentId).emit('sync-state', {
+      serverTime: getRoomTime(room),
+      isPlaying: false,
+      serverTimestamp: Date.now(),
+    });
   });
 
   socket.on('SEEK', (data) => {
@@ -402,15 +408,17 @@ io.on('connection', (socket) => {
     }
 
     const payload = normalizePayload(data);
-    const pos = typeof payload.time === 'number' ? payload.time : 0;
+    const time = typeof payload.time === 'number' ? payload.time : 0;
 
-    room.position = pos;
-    if (room.isPlaying) {
-      room.startedAt = Date.now();
-    }
+    room.anchorTime = time;
+    room.anchorTimestamp = Date.now();
 
-    console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${pos.toFixed(1)}`);
-    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+    console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
+    io.to(currentId).emit('sync-state', {
+      serverTime: getRoomTime(room),
+      isPlaying: room.isPlaying,
+      serverTimestamp: Date.now(),
+    });
   });
 
   socket.on('CHANGE_MEDIA', (data) => {
@@ -431,12 +439,43 @@ io.on('connection', (socket) => {
 
     room.currentUrl = url;
     room.currentType = type;
+    room.anchorTime = 0;
+    room.anchorTimestamp = Date.now();
     room.isPlaying = true;
-    room.position = 0;
-    room.startedAt = Date.now();
 
     console.log(`🎬 MEDIA  | ${socket.id} | room=${currentId} | ${type} | ${url.slice(0, 60)}`);
-    io.to(currentId).emit('ROOM_STATE', getRoomState(room));
+    io.to(currentId).emit('sync-state', {
+      serverTime: getRoomTime(room),
+      isPlaying: true,
+      serverTimestamp: Date.now(),
+    });
+  });
+
+  // ── Динамическая синхронизация (Rave: Server-side Master Clock) ───
+  socket.on('player-action', ({ roomId, action, time }) => {
+    const room = getRoom(roomId);
+    if (!room) return;
+
+    const now = Date.now();
+
+    if (action === 'play') {
+      room.isPlaying = true;
+      room.anchorTime = time;
+      room.anchorTimestamp = now;
+    } else if (action === 'pause') {
+      room.isPlaying = false;
+      room.anchorTime = time;
+      room.anchorTimestamp = now;
+    } else if (action === 'seek') {
+      room.anchorTime = time;
+      room.anchorTimestamp = now;
+    }
+
+    io.to(roomId).emit('sync-state', {
+      serverTime: getRoomTime(room),
+      isPlaying: room.isPlaying,
+      serverTimestamp: now,
+    });
   });
 
   // ── Периодическая синхронизация времени от хоста ─────────────
@@ -450,21 +489,21 @@ io.on('connection', (socket) => {
       return;
     }
 
-    const currentTime = typeof data.currentTime === 'number' ? data.currentTime : getCurrentPosition(room);
+    const now = Date.now();
+    const currentTime = typeof data.currentTime === 'number' ? data.currentTime : getRoomTime(room);
     const isPaused = typeof data.isPaused === 'boolean' ? data.isPaused : !room.isPlaying;
 
-    room.position = currentTime;
+    room.anchorTime = currentTime;
+    room.anchorTimestamp = now;
     if (!isPaused && !room.isPlaying) {
       room.isPlaying = true;
-      room.startedAt = Date.now();
     } else if (isPaused && room.isPlaying) {
       room.isPlaying = false;
-      room.startedAt = 0;
     }
 
-    io.to(currentId).emit('sync-video-client', {
-      currentTime,
-      isPaused,
+    io.to(currentId).emit('sync-state', {
+      serverTime: getRoomTime(room),
+      isPlaying: room.isPlaying,
       serverTimestamp: Date.now(),
     });
   });
@@ -517,16 +556,15 @@ io.on('connection', (socket) => {
     room.currentUrl = next.url;
     room.currentType = next.type;
     room.isPlaying = true;
-    room.position = 0;
-    room.startedAt = Date.now();
+    room.anchorTime = 0;
+    room.anchorTimestamp = Date.now();
 
     console.log(`⏭ NEXT   | ${socket.id} | room=${currentId} | ${next.url.slice(0, 50)}`);
 
-    io.to(currentId).emit('CHANGE_MEDIA', {
-      url: next.url,
-      mediaType: next.type,
-      time: 0,
-      serverTime: Date.now(),
+    io.to(currentId).emit('sync-state', {
+      serverTime: getRoomTime(room),
+      isPlaying: true,
+      serverTimestamp: Date.now(),
     });
     io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
   });
@@ -633,6 +671,19 @@ io.on('connection', (socket) => {
     console.error(`[!] Ошибка сокета ${socket.id}:`, err.message);
   });
 });
+
+// ── Фоновый тикер: удержание синхронизации каждые 3 секунды ───
+setInterval(() => {
+  rooms.forEach((room, roomId) => {
+    if (room.isPlaying) {
+      io.to(roomId).emit('sync-state', {
+        serverTime: getRoomTime(room),
+        isPlaying: true,
+        serverTimestamp: Date.now(),
+      });
+    }
+  });
+}, 3000);
 
 // ─────────────────────────────────────────────────────────────
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ

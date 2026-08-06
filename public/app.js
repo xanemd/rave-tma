@@ -54,6 +54,8 @@ const state = {
   pendingYouTubeVideoId: null,
 
   applyingRemote: false,
+  isSyncing: false,
+  currentPlaybackRate: 1.0,
 
   peers: [],
   viewers: 1,
@@ -1051,8 +1053,8 @@ function connectSocket() {
     console.log('[Socket] room-state ←', data);
 
     const roomUrl = data.currentUrl;
-    // Server-authoritative: вычисляем позицию по startedAt/position/serverTime
-    const roomTime = getServerAuthoritativePosition(data);
+     // Server-authoritative: вычисляем позицию по anchorTime/anchorTimestamp
+     const roomTime = getServerAuthoritativePosition(data);
     const roomPlaying = !!data.isPlaying;
 
     // Применяем currentType до инициализации плеера
@@ -1142,14 +1144,62 @@ function connectSocket() {
     }
   });
 
-  // ── Периодическая синхронизация времени от хоста ─────────────
-  s.on('sync-video-client', (data) => {
-    if (state.isHost) return; // Хост не синхронизируется сам с собой
+  // ── Rave: Server-side Master Clock + Dynamic Playback Rate ─────
+  // Сервер рассылает sync-state с серверным временем и timestamp ответа.
+  // Клиент компенсирует ping, затем плавно подстраивает playbackRate.
+  s.on('sync-state', ({ serverTime, isPlaying, serverTimestamp }) => {
+    const player = getActivePlayer();
+    if (!player) return;
 
-    const latency = (Date.now() - data.serverTimestamp) / 1000;
-    const targetTime = data.isPaused ? data.currentTime : data.currentTime + latency;
+    // А. Ping Compensation — компенсируем сетевую задержку
+    const latency = (Date.now() - serverTimestamp) / 2000;
+    const targetTime = serverTime + latency;
+    const localTime = player.getCurrentTime();
+    const diff = targetTime - localTime;
 
-    applyVideoSync(targetTime, data.isPaused);
+    state.isSyncing = true; // Блокируем отправку локальных событий
+
+    // Б. Состояние Play / Pause
+    if (isPlaying && player.isPaused()) {
+      player.play();
+    } else if (!isPlaying && !player.isPaused()) {
+      player.pause();
+      player.setPlaybackRate(1.0);
+      state.currentPlaybackRate = 1.0;
+      setTimeout(() => { state.isSyncing = false; }, 300);
+      return;
+    }
+
+    if (!isPlaying) {
+      setTimeout(() => { state.isSyncing = false; }, 300);
+      return;
+    }
+
+    // В. Логика Rave: дифференциальная подстройка вместо каскада пауз
+    const absDiff = Math.abs(diff);
+
+    if (absDiff > 2.5) {
+      player.seekTo(targetTime);
+      player.setPlaybackRate(1.0);
+      state.currentPlaybackRate = 1.0;
+    } else if (diff > 0.3) {
+      if (state.currentPlaybackRate !== 1.05) {
+        player.setPlaybackRate(1.05);
+        state.currentPlaybackRate = 1.05;
+      }
+    } else if (diff < -0.3) {
+      if (state.currentPlaybackRate !== 0.95) {
+        player.setPlaybackRate(0.95);
+        state.currentPlaybackRate = 0.95;
+      }
+    } else {
+      if (state.currentPlaybackRate !== 1.0) {
+        player.setPlaybackRate(1.0);
+        state.currentPlaybackRate = 1.0;
+      }
+    }
+
+    setTimeout(() => { state.isSyncing = false; }, 400);
   });
 
   // ── Обновление списка комнат ────────────────────────────────
@@ -1249,13 +1299,51 @@ function connectSocket() {
   });
 }
 
+// ─── Rave: Отправка действий пользователя с защитой от петли ───
+function onUserPlay() {
+  if (state.isSyncing) return;
+  const player = getActivePlayer();
+  if (!player) return;
+  const time = player.getCurrentTime();
+  state.socket.emit('player-action', {
+    roomId: state.roomId,
+    action: 'play',
+    time,
+  });
+}
+
+function onUserPause() {
+  if (state.isSyncing) return;
+  const player = getActivePlayer();
+  if (!player) return;
+  const time = player.getCurrentTime();
+  state.socket.emit('player-action', {
+    roomId: state.roomId,
+    action: 'pause',
+    time,
+  });
+}
+
+function onUserSeek(newTime) {
+  if (state.isSyncing) return;
+  state.socket.emit('player-action', {
+    roomId: state.roomId,
+    action: 'seek',
+    time: newTime,
+  });
+}
+
 function emitIfNeeded(eventName, payload) {
   if (state.applyingRemote) {
     console.log('[Emit] Пропуск (applyingRemote)', eventName);
     return;
   }
+  if (state.isSyncing) {
+    console.log('[Emit] Пропуск (isSyncing)', eventName);
+    return;
+  }
   // Только хост может управлять видео (как в Rave)
-  if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA'].includes(eventName)) {
+  if (!state.isHost && ['PLAY', 'PAUSE', 'SEEK', 'CHANGE_MEDIA', 'player-action'].includes(eventName)) {
     console.warn('[Emit] Гость не может управлять видео:', eventName);
     return;
   }
@@ -1336,15 +1424,15 @@ function getAdjustedRemoteTime(data) {
 
 /**
  * Server-authoritative позиция (как в Rave):
- * если есть startedAt — вычисляем текущую позицию по серверному времени.
+ * если есть anchorTimestamp и isPlaying — вычисляем текущую позицию по серверному времени.
  */
 function getServerAuthoritativePosition(data) {
-  if (data.isPlaying && data.startedAt > 0) {
-    const position = typeof data.position === 'number' ? data.position : 0;
-    const elapsed = (getServerNowMs() - data.startedAt) / 1000;
-    return Math.max(0, position + elapsed);
+  if (data.isPlaying && typeof data.anchorTimestamp === 'number') {
+    const anchorTime = typeof data.anchorTime === 'number' ? data.anchorTime : 0;
+    const elapsed = (getServerNowMs() - data.anchorTimestamp) / 1000;
+    return Math.max(0, anchorTime + elapsed);
   }
-  return typeof data.position === 'number' ? data.position : 0;
+  return typeof data.anchorTime === 'number' ? data.anchorTime : 0;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -1611,10 +1699,41 @@ function syncYouTubeTime(desired) {
 
 function getActivePlayer() {
   if (state.ytPlayer && state.ytPlayerReady) {
-    return state.ytPlayer;
+    return {
+      getCurrentTime: () => {
+        try { return state.ytPlayer.getCurrentTime(); } catch (e) { return 0; }
+      },
+      play: () => {
+        try { state.ytPlayer.playVideo(); } catch (e) { /* ignore */ }
+      },
+      pause: () => {
+        try { state.ytPlayer.pauseVideo(); } catch (e) { /* ignore */ }
+      },
+      seekTo: (time) => {
+        try { state.ytPlayer.seekTo(time, true); } catch (e) { /* ignore */ }
+      },
+      isPaused: () => {
+        try { return state.ytPlayer.getPlayerState() !== YT.PlayerState.PLAYING; } catch (e) { return true; }
+      },
+      setPlaybackRate: (rate) => {
+        try { state.ytPlayer.setPlaybackRate(rate); } catch (e) { /* ignore */ }
+      },
+      setCurrentTime: (time) => {
+        try { state.ytPlayer.seekTo(time, true); } catch (e) { /* ignore */ }
+      },
+    };
   }
-  if (els.nativeVideo && els.nativeVideo.readyState >= 1) {
-    return els.nativeVideo;
+  const video = els.nativeVideo;
+  if (video && video.readyState >= 1) {
+    return {
+      getCurrentTime: () => video.currentTime || 0,
+      play: () => video.play().catch(() => {}),
+      pause: () => video.pause(),
+      seekTo: (time) => { video.currentTime = time; },
+      isPaused: () => video.paused,
+      setPlaybackRate: (rate) => { video.playbackRate = rate; },
+      setCurrentTime: (time) => { video.currentTime = time; },
+    };
   }
   return null;
 }
