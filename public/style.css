@@ -222,9 +222,7 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* Фиксированная высота — не уменьшается при открытии клавиатуры */
-  height: var(--player-h, 240px);
-  min-height: 200px;
+  height: var(--player-h, 200px);
   max-height: 280px;
   overflow: hidden;
 }
@@ -683,10 +681,6 @@ input {
   padding: 6px 10px calc(6px + var(--safe-bottom)) 10px;
   border-top: 1px solid var(--border);
   background: var(--tg-bg);
-}
-
-#chat-form {
-  display: flex;
 }
 
 .chat-input {

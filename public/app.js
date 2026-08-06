@@ -644,6 +644,10 @@ function loadNativeOrHls(url, autoplay = true) {
   video.setAttribute('data-raw-url', url);
   showOnlyShell('video');
 
+  video.addEventListener('loadedmetadata', () => {
+    hideLoading();
+  }, { once: true });
+
   if (url.toLowerCase().endsWith('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
       if (window.hlsInstance) {
@@ -678,7 +682,6 @@ function loadNativeOrHls(url, autoplay = true) {
               window.hlsInstance.recoverMediaError();
               break;
             default:
-              // Неустранимая ошибка — сбрасываем currentUrl
               state.currentUrl = '';
               break;
           }
@@ -703,10 +706,6 @@ function loadNativeOrHls(url, autoplay = true) {
       video.play().catch(() => handleAutoplayBlocked('видео'));
     }
   }
-
-  video.addEventListener('loadedmetadata', () => {
-    hideLoading();
-  }, { once: true });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -857,10 +856,10 @@ function connectSocket() {
     setStatus('🟢 Подключено к лобби');
     showSnack('🟢 Подключено к лобби');
     startClockSync();
-    flushPendingSocketEvents();
     if (state.roomId) {
       s.emit('join-room');
     }
+    flushPendingSocketEvents();
   });
 
   s.on('disconnect', (reason) => {
@@ -2529,15 +2528,8 @@ function bindUI() {
     });
   }
 
-  // Чат
-  const chatForm = document.getElementById('chat-form');
-  if (chatForm) {
-    chatForm.addEventListener('submit', (e) => {
-      e.preventDefault();
-      sendChatMessage();
-    });
-  }
-
+  // Защита от мобильного сабмита формы Enter'ом: теперь это просто div,
+  // но оставляем preventDefault на случай системной отправки.
   els.chatSendBtn.addEventListener('click', sendChatMessage);
   els.chatInput.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {

@@ -138,7 +138,6 @@ io.on('connection', (socket) => {
 
   if (hasRoom) {
     socket.join(roomId);
-
     const room = getRoom(roomId);
     room.viewers += 1;
 
