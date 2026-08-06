@@ -74,6 +74,7 @@ const state = {
   queue: [],
   serverTimeOffsetMs: 0,
   serverPingMs: 0,
+  ytApiFailed: false,
   clockSyncInterval: null,
   syncInterval: null,
   vimeoReady: false,
@@ -441,6 +442,14 @@ function renderPlayer(url) {
   const welcome = document.getElementById('welcome-screen') || document.getElementById('placeholder');
 
   if (!container) return;
+
+  // renderPlayer владеет #player-container — прячем «богатые» шеллы,
+  // чтобы они не перекрывали fallback-плеер.
+  ['#ytPlayerHost', '#videoHost', '#iframeHost'].forEach((sel) => {
+    const shell = document.querySelector(sel);
+    if (shell) shell.classList.add('hidden');
+  });
+
   if (welcome) welcome.style.display = 'none';
   container.style.display = 'block';
 
@@ -450,11 +459,23 @@ function renderPlayer(url) {
     return;
   }
 
+  // Fallback-плеер тоже «держит» currentUrl, чтобы не было рекурсивной
+  // перезагрузки медиа на каждом ROOM_STATE.
+  state.currentUrl = url;
+
   const ytId = extractYouTubeId(url);
   if (ytId) {
-    container.innerHTML = `<iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&playsinline=1" style="width:100%;height:100%;border:0;" allow="autoplay" allowfullscreen></iframe>`;
+    container.innerHTML = `<iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&playsinline=1&rel=0" style="width:100%;height:100%;border:0;" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>`;
   } else {
     container.innerHTML = `<video src="${url}" controls autoplay playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>`;
+    const v = container.querySelector('video');
+    if (v) {
+      v.addEventListener('error', () => {
+        console.error('[Player] Fallback видео не загрузилось:', url);
+        setStatus('⚠️ Видео не загрузилось — сервер может блокировать внешние ссылки');
+        showSnack('❌ Не удалось загрузить видео с этого источника');
+      });
+    }
   }
 }
 
@@ -472,6 +493,15 @@ function isMediaMounted() {
   return false;
 }
 
+/**
+ * Проверяет, смонтирован ли fallback-плеер (renderPlayer) в #player-container.
+ */
+function isFallbackMounted() {
+  const container = document.getElementById('player-container');
+  if (!container) return false;
+  return Boolean(container.querySelector('video, iframe'));
+}
+
 /* ═══════════════════════════════════════════════════════════
    5. YouTube ПЛЕЕР
    ═══════════════════════════════════════════════════════════ */
@@ -479,6 +509,8 @@ function isMediaMounted() {
 window.onYouTubeIframeAPIReady = function () {
   console.log('[YouTube] IFrame API готов');
   state.ytReady = true;
+  state.ytApiFailed = false;
+  ytApiAttempts = 0;
   hideLoading();
 
   if (state.pendingYouTubeVideoId) {
@@ -504,9 +536,15 @@ function tryLoadYouTubeApi() {
 
   if (ytApiAttempts >= YT_API_MAX_ATTEMPTS) {
     console.error('[YouTube] API не загрузился за 15 секунд');
-    setStatus('⚠️ YouTube API не загрузился. Проверьте соединение.');
-    showSnack('❌ YouTube API не загрузился. Попробуйте обновить страницу.');
+    state.ytApiFailed = true;
+    setStatus('⚠️ YouTube API недоступен — включаю запасной iframe-плеер');
+    showSnack('⚠️ YouTube API недоступен — включён запасной плеер');
     hideLoading();
+    // Если есть отложенное видео — сразу монтируем iframe fallback
+    if (state.pendingYouTubeVideoId) {
+      renderPlayer('https://www.youtube.com/watch?v=' + state.pendingYouTubeVideoId);
+      state.pendingYouTubeVideoId = null;
+    }
     return;
   }
 
@@ -529,6 +567,18 @@ setTimeout(() => {
 }, 15000);
 
 function loadYouTubeVideo(videoId, autoplay = true) {
+  // Если YouTube API точно недоступен (блокировка сети/расширением) —
+  // сразу монтируем обычный <iframe>, НЕ требующий API.
+  if (state.ytApiFailed) {
+    console.warn('[YouTube] API недоступен — использую iframe fallback:', videoId);
+    renderPlayer('https://www.youtube.com/watch?v=' + videoId);
+    hideLoading();
+    try {
+      els.nowPlayingTitle.textContent = 'YouTube (iframe режим) — ' + videoId;
+    } catch (e) { /* ignore */ }
+    return;
+  }
+
   const host = els.ytHost;
   host.classList.remove('hidden');
   showOnlyShell('yt');
@@ -695,9 +745,35 @@ function loadNativeOrHls(url, autoplay = true) {
   video.setAttribute('data-raw-url', url);
   showOnlyShell('video');
 
+  // ── Fallback: если видео не начало грузиться за 8с или произошла ошибка —
+  //    монтируем «голый» <video> с контролами через renderPlayer.
+  //    Это чинит случаи, когда сервер блокирует запрос (Referer/CORS/хотлинк).
+  let fallbackDone = false;
+  const fallbackTimer = setTimeout(() => {
+    if (video.readyState === 0 && !fallbackDone) {
+      fallbackDone = true;
+      console.warn('[Video] Загрузка зависла — fallback renderPlayer:', url);
+      hideLoading();
+      renderPlayer(url);
+    }
+  }, 8000);
+
+  const fallbackOnError = () => {
+    if (fallbackDone) return;
+    fallbackDone = true;
+    clearTimeout(fallbackTimer);
+    console.warn('[Video] Ошибка загрузки — fallback renderPlayer:', url);
+    hideLoading();
+    // renderPlayer сам запишет state.currentUrl — не даём циклу перезагрузки
+    renderPlayer(url);
+  };
+
   video.addEventListener('loadedmetadata', () => {
+    clearTimeout(fallbackTimer);
     hideLoading();
   }, { once: true });
+
+  video.addEventListener('error', fallbackOnError, { once: true });
 
   if (url.toLowerCase().endsWith('.m3u8')) {
     if (window.Hls && Hls.isSupported()) {
@@ -714,6 +790,7 @@ function loadNativeOrHls(url, autoplay = true) {
       window.hlsInstance.attachMedia(video);
 
       window.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+        clearTimeout(fallbackTimer);
         hideLoading();
         setStatus('📡 HLS поток готов');
         if (autoplay) {
@@ -734,6 +811,7 @@ function loadNativeOrHls(url, autoplay = true) {
               break;
             default:
               state.currentUrl = '';
+              fallbackOnError();
               break;
           }
         }
@@ -741,6 +819,7 @@ function loadNativeOrHls(url, autoplay = true) {
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = url;
       video.addEventListener('loadedmetadata', () => {
+        clearTimeout(fallbackTimer);
         hideLoading();
         setStatus('📡 HLS поток готов (нативно)');
         if (autoplay) video.play().catch(() => handleAutoplayBlocked('HLS'));
@@ -749,6 +828,7 @@ function loadNativeOrHls(url, autoplay = true) {
       console.error('[HLS] HLS.js недоступен');
       setStatus('⚠️ HLS не поддерживается на этом устройстве');
       hideLoading();
+      fallbackOnError();
     }
   } else {
     video.src = url;
@@ -1024,7 +1104,7 @@ function connectSocket() {
   s.on('ROOM_STATE', (data) => {
     applyRoomState(data);
     // Гарантия монтирования плеера (фолбэк, если rich-пайплайн не сработал)
-    if (data && data.currentUrl && !isMediaMounted()) {
+    if (data && data.currentUrl && !isMediaMounted() && !isFallbackMounted()) {
       renderPlayer(data.currentUrl);
     }
   });
