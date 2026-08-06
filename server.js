@@ -78,7 +78,7 @@ function getRoom(roomId) {
 function createRoomRecord(roomId, name, hostId) {
   return {
     id: roomId,
-    name: (name && String(name).trim().slice(0, 64)) || `Комната ${roomId}`,
+    name: (name && String(name).trim().slice(0, 64)) || 'НАША СПАЛЬНЯ 😉',
     hostId,
     currentUrl: '',
     currentType: null,
