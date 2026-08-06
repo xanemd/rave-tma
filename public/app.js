@@ -1161,10 +1161,14 @@ function connectSocket() {
 
     state.isSyncing = true; // Блокируем отправку локальных событий
 
-    // Б. Состояние Play / Pause
-    if (isPlaying && player.isPaused()) {
+    // Б. Состояние Play / Pause — только при реальном рассинхроне состояния
+    const isPlayerPaused = player.isPaused();
+    if (isPlaying && isPlayerPaused) {
       player.play();
-    } else if (!isPlaying && !player.isPaused()) {
+      player.setPlaybackRate(state.currentPlaybackRate);
+      setTimeout(() => { state.isSyncing = false; }, 400);
+      return;
+    } else if (!isPlaying && !isPlayerPaused) {
       player.pause();
       player.setPlaybackRate(1.0);
       state.currentPlaybackRate = 1.0;
@@ -1172,8 +1176,12 @@ function connectSocket() {
       return;
     }
 
-    if (!isPlaying) {
-      setTimeout(() => { state.isSyncing = false; }, 300);
+    if (!isPlaying && isPlayerPaused) {
+      // Paused on both sides — просто синхронизируем позицию если сильно отстаём
+      if (Math.abs(diff) > 2.5) {
+        player.seekTo(targetTime);
+      }
+      setTimeout(() => { state.isSyncing = false; }, 400);
       return;
     }
 
