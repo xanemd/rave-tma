@@ -184,22 +184,11 @@ function initTelegram() {
   // Фиксируем высоту плеера по стабильной высоте вьюпорта Telegram.
   // При открытии клавиатуры уменьшаем плеер, чтобы дать больше места чату.
   const setPlayerHeight = () => {
-    const stableH = (typeof tg.viewportStableHeight === 'number' && tg.viewportStableHeight > 0)
-      ? tg.viewportStableHeight
-      : window.innerHeight;
-    const currentH = (typeof tg.viewportHeight === 'number' && tg.viewportHeight > 0)
-      ? tg.viewportHeight
-      : stableH;
-    // Если клавиатура открыта (текущая высота < 80% стабильной) — уменьшаем плеер до 15%
-    const isKeyboardOpen = currentH < stableH * 0.8;
-    const ratio = isKeyboardOpen ? 0.15 : 0.22;
-    const playerH = Math.min(Math.max(stableH * ratio, 140), 220);
-    document.documentElement.style.setProperty('--player-h', playerH + 'px');
+    document.documentElement.style.setProperty('--player-h', '240px');
   };
   setPlayerHeight();
 
   tg.onEvent('viewportChanged', () => {
-    // Пересчитываем высоту плеера при открытии/закрытии клавиатуры.
     setPlayerHeight();
     if (state.ytPlayer && typeof state.ytPlayer.getIframe === 'function') {
       requestAnimationFrame(() => {
@@ -2220,12 +2209,13 @@ function sendChatMessage() {
       cancelReply();
     }
 
+    console.log('[Chat] Отправка:', payload.text);
     state.socket.emit('CHAT', payload);
 
     input.value = '';
     input.focus();
   } catch (err) {
-    console.error('Ошибка при отправке сообщения:', err);
+    console.error('[Chat] Ошибка при отправке сообщения:', err);
   }
 }
 
