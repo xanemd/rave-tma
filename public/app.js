@@ -2612,6 +2612,11 @@ function bindUI() {
         setActiveTab('rooms-tab');
         showSnack('🚀 Комната создана: ' + res.roomId);
 
+        // Принудительно обновляем список комнат, чтобы новая комната появилась
+        if (state.socket && state.connected) {
+          state.socket.emit('get-rooms');
+        }
+
         if (url) {
           loadVideoIntoPlayer(url);
         }

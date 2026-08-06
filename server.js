@@ -97,7 +97,9 @@ function createRoomRecord(roomId, name, hostId) {
 function getPublicRoomsList() {
   const list = [];
   for (const [id, room] of rooms.entries()) {
-    const usersCount = io.sockets.adapter.rooms.get(id)?.size || 0;
+    // Надёжный подсчёт: берём max из нашего viewers и adapter (на случай рассинхрона)
+    const adapterCount = io.sockets.adapter.rooms.get(id)?.size || 0;
+    const usersCount = Math.max(adapterCount, room.viewers || 1, 1);
     list.push({
       id,
       name: room.name || id,
@@ -235,7 +237,20 @@ io.on('connection', (socket) => {
       // Покидаем предыдущую комнату (если была создана из query при подключении),
       // чтобы socket не висел в двух комнатах и список комнат был корректным.
       if (socket.currentRoomId && socket.currentRoomId !== roomId) {
-        socket.leave(socket.currentRoomId);
+        const oldRoomId = socket.currentRoomId;
+        socket.leave(oldRoomId);
+        // Если в старой комнате больше никого не осталось — удаляем её из rooms,
+        // чтобы пустые комнаты не засоряли список.
+        const oldAdapterRoom = io.sockets.adapter.rooms.get(oldRoomId);
+        if (!oldAdapterRoom || oldAdapterRoom.size === 0) {
+          const oldRoom = getRoom(oldRoomId);
+          if (oldRoom) {
+            oldRoom.viewers = Math.max(0, (oldRoom.viewers || 1) - 1);
+            if (oldRoom.viewers === 0) {
+              rooms.delete(oldRoomId);
+            }
+          }
+        }
       }
 
       socket.join(roomId);
