@@ -397,23 +397,23 @@ function resetPlayers(keepVisible = false) {
 
   if (!keepVisible) {
     showOnlyShell(null);
-  }
 
-  const container = document.getElementById('player-container');
-  if (container) {
-    container.innerHTML = `
-      <div class="player-placeholder" id="placeholder">
-        <div class="placeholder-icon">🎥</div>
-        <div class="placeholder-title">Начнём смотреть вместе?</div>
-        <div class="placeholder-sub">
-          Нажмите «Сменить видео» и вставьте ссылку.<br>
-          Всё, что вы запускаете, синхронно увидит ваш собеседник.
+    const container = document.getElementById('player-container');
+    if (container) {
+      container.innerHTML = `
+        <div class="player-placeholder" id="placeholder">
+          <div class="placeholder-icon">🎥</div>
+          <div class="placeholder-title">Начнём смотреть вместе?</div>
+          <div class="placeholder-sub">
+            Нажмите «Сменить видео» и вставьте ссылку.<br>
+            Всё, что вы запускаете, синхронно увидит ваш собеседник.
+          </div>
         </div>
-      </div>
-      <div id="video-loader" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10; align-items:center; justify-content:center; color:#fff; font-size:14px;">
-        Загрузка видео…
-      </div>
-    `;
+        <div id="video-loader" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10; align-items:center; justify-content:center; color:#fff; font-size:14px;">
+          Загрузка видео…
+        </div>
+      `;
+    }
   }
 }
 
@@ -438,16 +438,15 @@ const YT_API_MAX_ATTEMPTS = 3;
 
 function tryLoadYouTubeApi() {
   if (state.ytReady) return;
-  
+
   ytApiAttempts++;
   console.log(`[YouTube] Попытка загрузки API #${ytApiAttempts}`);
-  
-  // Если API уже загрузилось между попытками
+
   if (state.ytReady) {
     hideLoading();
     return;
   }
-  
+
   if (ytApiAttempts >= YT_API_MAX_ATTEMPTS) {
     console.error('[YouTube] API не загрузился за 15 секунд');
     setStatus('⚠️ YouTube API не загрузился. Проверьте соединение.');
@@ -455,8 +454,15 @@ function tryLoadYouTubeApi() {
     hideLoading();
     return;
   }
-  
-  // Повторная попытка через 5 секунд
+
+  if (!document.getElementById('yt-iframe-api-script')) {
+    const tag = document.createElement('script');
+    tag.id = 'yt-iframe-api-script';
+    tag.src = 'https://www.youtube.com/iframe_api';
+    tag.async = true;
+    document.head.appendChild(tag);
+  }
+
   setTimeout(tryLoadYouTubeApi, 5000);
 }
 

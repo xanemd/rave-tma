@@ -196,6 +196,12 @@ io.on('connection', (socket) => {
     });
   }
 
+  socket.emit('rooms-updated', getPublicRoomsList());
+
+  socket.on('get-rooms', () => {
+    socket.emit('rooms-updated', getPublicRoomsList());
+  });
+
   // ── Обработка ивентов синхронизации ────────────────────────
   // Только хост может управлять видео (как в Rave)
 
