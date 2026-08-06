@@ -25,7 +25,7 @@
    0. КОНСТАНТЫ И СОСТОЯНИЕ
    ═══════════════════════════════════════════════════════════ */
 
-const SYNC_THRESHOLD_SECONDS = 0.3;
+const SYNC_THRESHOLD_SECONDS = 2;
 
 const SOURCE_TYPES = {
   YOUTUBE: 'youtube',
@@ -356,16 +356,20 @@ function buildEmbedUrl(parsed) {
 
 function showOnlyShell(shellId) {
   const shells = {
-    yt: els.ytHost,
-    video: els.videoHost,
-    iframe: els.iframeHost,
+    yt: $('#ytPlayerHost'),
+    video: $('#videoHost'),
+    iframe: $('#iframeHost'),
   };
 
   Object.entries(shells).forEach(([key, el]) => {
+    if (!el) return;
     el.classList.toggle('hidden', key !== shellId);
   });
 
-  els.placeholder.classList.toggle('hidden', shellId !== null);
+  const placeholder = $('#placeholder');
+  if (placeholder) {
+    placeholder.classList.toggle('hidden', shellId !== null);
+  }
 }
 
 window.addEventListener('message', handleVimeoPostMessage, false);
@@ -482,6 +486,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
     state.pendingYouTubeVideoId = videoId;
     setStatus('⏳ YouTube API загружается…');
     hideLoading();
+    tryLoadYouTubeApi();
     return;
   }
 
@@ -816,6 +821,16 @@ function formatTitle(url) {
   }
 }
 
+function ensureCorrectPlayer(videoUrl, autoplay = true) {
+  if (!videoUrl) return;
+  const parsed = parseUrl(videoUrl);
+  if (parsed.type === SOURCE_TYPES.UNKNOWN) {
+    console.warn('[Player] Не удалось определить тип медиа:', videoUrl);
+    return;
+  }
+  loadMedia(videoUrl, { emit: false, autoplay, incoming: true });
+}
+
 /* ═══════════════════════════════════════════════════════════
    9. SOCKET.IO — ПОДКЛЮЧЕНИЕ И ОБРАБОТКА СОБЫТИЙ
    ═══════════════════════════════════════════════════════════ */
@@ -897,13 +912,13 @@ function connectSocket() {
     const roomPlaying = !!data.isPlaying;
 
     // Применяем currentType до инициализации плеера
-    if (data.currentType) {
-      state.currentType = data.currentType;
-    } else if (roomUrl) {
+    if (roomUrl) {
       const parsed = parseUrl(roomUrl);
       if (parsed.type !== SOURCE_TYPES.UNKNOWN) {
         state.currentType = parsed.type;
       }
+    } else if (data.currentType) {
+      state.currentType = data.currentType;
     }
 
     updateDiagnostic({
@@ -1197,30 +1212,30 @@ function handleRemotePlay(data) {
 
   withRemoteFlag(() => {
     switch (type) {
-      case SOURCE_TYPES.YOUTUBE:
-        if (state.ytPlayer && typeof state.ytPlayer.playVideo === 'function') {
-          try { state.ytPlayer.playVideo(); } catch (e) { /* ignore */ }
-          if (targetTime > 0) {
-            syncYouTubeTime(targetTime);
-          }
+      case SOURCE_TYPES.YOUTUBE: {
+        const player = getPlayerInterface();
+        if (!player) return;
+        if (targetTime > 0 && Math.abs(player.getCurrentTime() - targetTime) > SYNC_THRESHOLD_SECONDS) {
+          player.seekTo(targetTime);
         }
+        player.play();
         break;
+      }
 
       case SOURCE_TYPES.NATIVE:
       case SOURCE_TYPES.HLS: {
+        const video = els.nativeVideo;
         const desired = targetTime || 0;
-        const current = els.nativeVideo.currentTime || 0;
 
-        // Если видео ещё не загружено — запомним время до loadedmetadata
-        if (els.nativeVideo.readyState < 2 && desired > 0) {
-          els.nativeVideo.addEventListener('loadedmetadata', () => {
-            try { els.nativeVideo.currentTime = desired; } catch (e) { /* ignore */ }
+        if (video.readyState < 2 && desired > 0) {
+          video.addEventListener('loadedmetadata', () => {
+            try { video.currentTime = desired; } catch (e) { /* ignore */ }
           }, { once: true });
-        } else if (Math.abs(desired - current) > SYNC_THRESHOLD_SECONDS && desired > 0) {
-          els.nativeVideo.currentTime = desired;
+        } else if (Math.abs((video.currentTime || 0) - desired) > SYNC_THRESHOLD_SECONDS && desired > 0) {
+          video.currentTime = desired;
         }
 
-        els.nativeVideo.play().catch(() => handleAutoplayBlocked('видео'));
+        video.play().catch(() => handleAutoplayBlocked('видео'));
         break;
       }
 
@@ -1253,11 +1268,11 @@ function handleRemotePause(data) {
 
   withRemoteFlag(() => {
     switch (type) {
-      case SOURCE_TYPES.YOUTUBE:
-        if (state.ytPlayer && typeof state.ytPlayer.pauseVideo === 'function') {
-          try { state.ytPlayer.pauseVideo(); } catch (e) { /* ignore */ }
-        }
+      case SOURCE_TYPES.YOUTUBE: {
+        const player = getPlayerInterface();
+        if (player) player.pause();
         break;
+      }
 
       case SOURCE_TYPES.NATIVE:
       case SOURCE_TYPES.HLS:
@@ -1290,11 +1305,13 @@ function handleRemoteSeek(data) {
 
   withRemoteFlag(() => {
     switch (type) {
-      case SOURCE_TYPES.YOUTUBE:
-        if (state.ytPlayer && typeof state.ytPlayer.seekTo === 'function') {
-          try { state.ytPlayer.seekTo(seekTo, true); } catch (e) { /* ignore */ }
+      case SOURCE_TYPES.YOUTUBE: {
+        const player = getPlayerInterface();
+        if (player && Math.abs(player.getCurrentTime() - seekTo) > SYNC_THRESHOLD_SECONDS) {
+          player.seekTo(seekTo);
         }
         break;
+      }
 
       case SOURCE_TYPES.NATIVE:
       case SOURCE_TYPES.HLS: {
@@ -1303,8 +1320,8 @@ function handleRemoteSeek(data) {
           video.addEventListener('loadedmetadata', () => {
             try { video.currentTime = seekTo; } catch (e) { /* ignore */ }
           }, { once: true });
-        } else {
-          try { video.currentTime = seekTo; } catch (e) { /* ignore */ }
+        } else if (Math.abs((video.currentTime || 0) - seekTo) > SYNC_THRESHOLD_SECONDS) {
+          video.currentTime = seekTo;
         }
         break;
       }
@@ -1368,11 +1385,7 @@ function handleRemoteMedia(data) {
   // Если URL тот же, но плеер ещё не готов — перезагружаем медиа и ставим синхронизацию на готовность
   if (sameUrl && !isPlayerReady(type)) {
     console.log('[Sync] Тот же URL, но плеер не готов — повторно загружаем медиа', type, url);
-    loadMedia(url, {
-      emit: false,
-      autoplay: autoplay,
-      incoming: true,
-    });
+    ensureCorrectPlayer(url, autoplay);
     scheduleRemoteSync();
     return;
   }
@@ -1392,11 +1405,7 @@ function handleRemoteMedia(data) {
 
   console.log('[Sync] Загружаем удалённое медиа:', mediaType, url);
 
-  loadMedia(url, {
-    emit: false,
-    autoplay: autoplay,
-    incoming: true,
-  });
+  ensureCorrectPlayer(url, autoplay);
 
   scheduleRemoteSync();
 }
@@ -1423,17 +1432,8 @@ function isPlayerReady(type) {
    ═══════════════════════════════════════════════════════════ */
 
 function getCurrentPlayhead() {
-  switch (state.currentType) {
-    case SOURCE_TYPES.YOUTUBE:
-      return getYouTubeCurrentTime();
-    case SOURCE_TYPES.NATIVE:
-    case SOURCE_TYPES.HLS: {
-      const v = els.nativeVideo;
-      return v && typeof v.currentTime === 'number' ? v.currentTime : 0;
-    }
-    default:
-      return 0;
-  }
+  const player = getPlayerInterface();
+  return player ? player.getCurrentTime() : 0;
 }
 
 function syncYouTubeTime(desired) {
@@ -1458,6 +1458,39 @@ function getActivePlayer() {
   return null;
 }
 
+function getPlayerInterface() {
+  if (state.ytPlayer && state.ytPlayerReady) {
+    return {
+      getCurrentTime: () => {
+        try { return state.ytPlayer.getCurrentTime(); } catch (e) { return 0; }
+      },
+      play: () => {
+        try { state.ytPlayer.playVideo(); } catch (e) { /* ignore */ }
+      },
+      pause: () => {
+        try { state.ytPlayer.pauseVideo(); } catch (e) { /* ignore */ }
+      },
+      seekTo: (time) => {
+        try { state.ytPlayer.seekTo(time, true); } catch (e) { /* ignore */ }
+      },
+      isPlaying: () => {
+        try { return state.ytPlayer.getPlayerState() === YT.PlayerState.PLAYING; } catch (e) { return false; }
+      }
+    };
+  }
+  const video = els.nativeVideo;
+  if (video && video.readyState >= 1) {
+    return {
+      getCurrentTime: () => video.currentTime || 0,
+      play: () => video.play().catch(() => {}),
+      pause: () => video.pause(),
+      seekTo: (time) => { video.currentTime = time; },
+      isPlaying: () => !video.paused
+    };
+  }
+  return null;
+}
+
 function setSupportedSpeed(player, speed) {
   try {
     if (player && typeof player.setPlaybackRate === 'function') {
@@ -1478,47 +1511,23 @@ function setSupportedSpeed(player, speed) {
 }
 
 function applyVideoSync(targetTime, isPaused) {
-  const player = getActivePlayer();
+  const player = getPlayerInterface();
   if (!player) return;
 
-  const currentTime = player.getCurrentTime ? player.getCurrentTime() : player.currentTime;
-  const timeDiff = targetTime - currentTime;
+  const currentTime = player.getCurrentTime();
+  const timeDiff = Math.abs(currentTime - targetTime);
 
   if (isPaused) {
-    if (player.pauseVideo) player.pauseVideo();
-    else if (player.pause) player.pause();
-    setSupportedSpeed(player, 1.0);
+    player.pause();
     return;
   }
 
-  if (player.getPlayerState && player.getPlayerState() !== 1) {
-    if (player.playVideo) {
-      try { player.playVideo(); } catch (e) { /* ignore */ }
-    } else if (player.paused && player.play) {
-      player.play().catch(() => {});
-    }
+  if (!player.isPlaying()) {
+    player.play();
   }
 
-  if (Math.abs(timeDiff) <= 0.4) {
-    setSupportedSpeed(player, 1.0);
-    return;
-  }
-
-  if (Math.abs(timeDiff) > 0.4 && Math.abs(timeDiff) <= 2.5) {
-    if (timeDiff > 0) {
-      setSupportedSpeed(player, 1.25);
-    } else {
-      setSupportedSpeed(player, 0.75);
-    }
-    return;
-  }
-
-  console.log(`[Sync] Рассинхрон > 2.5s (${timeDiff.toFixed(2)}s). Выполняем seekTo.`);
-  setSupportedSpeed(player, 1.0);
-  if (player.seekTo) {
-    player.seekTo(targetTime, true);
-  } else {
-    player.currentTime = targetTime;
+  if (timeDiff > SYNC_THRESHOLD_SECONDS) {
+    player.seekTo(targetTime);
   }
 }
 
@@ -2189,34 +2198,36 @@ function formatTime(ts) {
 }
 
 function sendChatMessage() {
-  if (!state.socket || !state.connected) {
-    showSnack('⚠️ Нет соединения с сервером');
-    return;
+  try {
+    if (!state.socket || !state.connected) {
+      showSnack('⚠️ Нет соединения с сервером');
+      return;
+    }
+
+    const input = els.chatInput;
+    if (!input) return;
+
+    const text = input.value.trim();
+    if (!text) return;
+
+    const payload = {
+      text,
+      sender: state.userName,
+    };
+
+    if (state.replyTo) {
+      payload.replyToId = state.replyTo.id;
+      payload.replyToText = state.replyTo.text;
+      cancelReply();
+    }
+
+    state.socket.emit('CHAT', payload);
+
+    input.value = '';
+    input.focus();
+  } catch (err) {
+    console.error('Ошибка при отправке сообщения:', err);
   }
-
-  const text = els.chatInput.value.trim();
-  if (!text) return;
-
-  const payload = {
-    text,
-    sender: state.userName,
-  };
-
-  // Добавляем reply если есть
-  if (state.replyTo) {
-    payload.replyToId = state.replyTo.id;
-    payload.replyToText = state.replyTo.text;
-    cancelReply();
-  }
-
-  state.socket.emit('CHAT', payload);
-
-  // Сервер теперь отправляет CHAT ВСЕМ (включая отправителя),
-  // поэтому не добавляем оптимистично — ждём подтверждение от сервера
-  // с правильным messageId для реакций.
-
-  els.chatInput.value = '';
-  els.chatInput.focus();
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -2519,9 +2530,17 @@ function bindUI() {
   }
 
   // Чат
+  const chatForm = document.getElementById('chat-form');
+  if (chatForm) {
+    chatForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      sendChatMessage();
+    });
+  }
+
   els.chatSendBtn.addEventListener('click', sendChatMessage);
   els.chatInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
+    if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       sendChatMessage();
     }

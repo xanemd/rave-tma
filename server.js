@@ -386,6 +386,17 @@ io.on('connection', (socket) => {
       io.to(roomId).emit('CHAT', payload);
     });
 
+    socket.on('send-message', (data) => {
+      const payload = normalizeChat(data, socket.id);
+      if (!payload) return;
+
+      room.messages.push(payload);
+      if (room.messages.length > 50) room.messages.shift();
+
+      console.log(`💬 CHAT   | ${socket.id} | room=${roomId}`, payload.text);
+      io.to(roomId).emit('CHAT', payload);
+    });
+
     // ── Реакции на сообщения ───────────────────────────────────
     socket.on('send-message-reaction', (data) => {
       const messageId = String(data?.messageId || '');
