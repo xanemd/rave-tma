@@ -2232,15 +2232,18 @@ function renderQueue() {
 function renderDrawerPeers() {
   if (!els.drawerPeers) return;
 
-  const peersHtml = state.roomUsers.map((u) => {
-    const name = escapeHtml(u.nickname || 'Гость');
-    if (u.isHost) {
-      return `<div class="drawer-peer">👑 ${name}</div>`;
-    }
-    return `<div class="drawer-peer">💕 ${name}</div>`;
-  }).join('');
+  els.drawerPeers.innerHTML = '';
 
-  els.drawerPeers.innerHTML = peersHtml || '<div class="drawer-peer">Нет участников</div>';
+  state.roomUsers.forEach((user) => {
+    const userElement = document.createElement('div');
+    userElement.className = 'drawer-peer';
+
+    const icon = user.isHost ? '👑' : '💕';
+    const name = escapeHtml(user.nickname || 'Гость');
+
+    userElement.innerHTML = `<span class="user-icon">${icon}</span> <span class="user-name">${name}</span>`;
+    els.drawerPeers.appendChild(userElement);
+  });
 }
 
 function renderRoomsList(rooms) {

@@ -199,7 +199,9 @@ io.on('connection', (socket) => {
     }
 
     if (!room.users) room.users = new Map();
-    room.users.set(socket.id, { id: socket.id, nickname: 'Гость' });
+    if (!room.users.has(socket.id)) {
+      room.users.set(socket.id, { id: socket.id, nickname: 'Гость' });
+    }
 
     console.log(
       `[+] ${socket.id} подключился в "${roomId}" ` +
@@ -284,6 +286,12 @@ io.on('connection', (socket) => {
       socket.join(roomId);
       socket.currentRoomId = roomId;
 
+      if (!newRoom.users) newRoom.users = new Map();
+      newRoom.users.set(socket.id, {
+        id: socket.id,
+        nickname: (data && data.nickname) ? String(data.nickname).slice(0, 64) : 'Хост',
+      });
+
       // Сообщаем клиенту, что он теперь хост созданной комнаты
       socket.emit('hello', {
         roomId,
@@ -296,6 +304,8 @@ io.on('connection', (socket) => {
       // Отдаем клиенту подтверждение с ID созданной комнаты
       if (typeof callback === 'function') callback({ success: true, roomId });
 
+      emitRoomUsers(newRoom, socket);
+      io.to(roomId).emit('room-users-update', buildUsersList(newRoom, null));
       io.emit('rooms-updated', getPublicRoomsList());
     } catch (err) {
       console.error('Create room error:', err);
