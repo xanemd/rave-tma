@@ -835,6 +835,7 @@ function connectSocket() {
 
     if (roomUrl) {
       if (roomUrl !== state.currentUrl) {
+        showLoading('Загрузка видео…');
         isSyncing = true;
         const ytId = extractYouTubeId(roomUrl);
         if (ytId) {
@@ -894,6 +895,8 @@ function connectSocket() {
       if (els.nowPlayingTitle) {
         els.nowPlayingTitle.textContent = formatTitle(currentUrl);
       }
+
+      showLoading('Загрузка видео…');
 
       if (currentType === 'youtube' || extractYouTubeId(currentUrl)) {
         loadYouTubeAPI();

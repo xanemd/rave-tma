@@ -326,15 +326,30 @@ io.on('connection', (socket) => {
       io.to(currentId).emit('CHAT', payload);
     });
 
-  // ── Смена видео (безопасная) ────────────────────────────────
+  // ── Смена видео (хост) ────────────────────────────────────────
   socket.on('CHANGE_MEDIA', (data) => {
-    const room = getRoom(roomId);
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
     if (!room) return;
 
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может менять видео' });
+      return;
+    }
+
+    const url = String(data?.url || '').slice(0, 2000);
+    const type = String(data?.mediaType || '').slice(0, 32);
+    if (!url) return;
+
     room.currentUrl = url;
+    room.currentType = type;
     room.anchorTime = 0;
     room.anchorTimestamp = Date.now();
     room.isPlaying = false;
+
+    console.log(`🎬 MEDIA  | ${socket.id} | room=${currentId} | ${type} | ${url.slice(0, 60)}`);
+
+    io.to(currentId).emit('sync-state', buildSyncState(room));
   });
 
   // ── Выход из комнаты ────────────────────────────────────────
@@ -417,6 +432,11 @@ io.on('connection', (socket) => {
   socket.on('player-action', ({ roomId, action, time }) => {
     const room = getRoom(roomId);
     if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
 
     const now = Date.now();
 
