@@ -585,7 +585,7 @@ io.on('connection', (socket) => {
 
     room.currentUrl = next.url;
     room.currentType = next.type;
-    room.isPlaying = true;
+    room.isPlaying = false;
     room.anchorTime = 0;
     room.anchorTimestamp = Date.now();
 

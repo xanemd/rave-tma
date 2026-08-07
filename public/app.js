@@ -574,7 +574,7 @@ setTimeout(() => {
   }
 }, 15000);
 
-function loadYouTubeVideo(videoId, autoplay = true) {
+function loadYouTubeVideo(videoId, autoplay = false) {
   // Если YouTube API точно недоступен (блокировка сети/расширением) —
   // сразу монтируем обычный <iframe>, НЕ требующий API.
   if (state.ytApiFailed) {
@@ -762,10 +762,13 @@ function getYouTubeCurrentTime() {
    6. HTML5 VIDEO / HLS ПЛЕЕР
    ═══════════════════════════════════════════════════════════ */
 
-function loadNativeOrHls(url, autoplay = true) {
+function loadNativeOrHls(url, autoplay = false) {
   const video = els.nativeVideo;
   video.setAttribute('data-raw-url', url);
   showOnlyShell('video');
+
+  try { video.pause(); } catch (e) { /* ignore */ }
+  try { video.currentTime = 0; } catch (e) { /* ignore */ }
 
   // ── Fallback: если видео не начало грузиться за 8с или произошла ошибка —
   //    монтируем «голый» <video> с контролами через renderPlayer.
@@ -893,7 +896,7 @@ function loadIframe(embedUrl) {
   }, 1500);
 }
 
-function loadVimeoVideo(videoId, autoplay = true) {
+function loadVimeoVideo(videoId, autoplay = false) {
   showOnlyShell('iframe');
   state.vimeoReady = false;
   const url = `https://player.vimeo.com/video/${encodeURIComponent(videoId)}?api=1&player_id=vimeo_player&autoplay=${autoplay ? 1 : 0}&transparent=0&dnt=1`;
@@ -906,7 +909,7 @@ function loadVimeoVideo(videoId, autoplay = true) {
    ═══════════════════════════════════════════════════════════ */
 
 function loadMedia(rawUrl, opts = {}) {
-  const { emit = true, autoplay = true, incoming = false } = opts;
+  const { emit = true, autoplay = false, incoming = false } = opts;
 
   const parsed = parseUrl(rawUrl);
 
@@ -1156,7 +1159,7 @@ function connectSocket() {
     if (state.isHost) return;
     if (!url || url === state.currentUrl) return;
     console.log('[Socket] video-changed ←', url);
-    loadMedia(url, { autoplay: true, incoming: true });
+    loadMedia(url, { autoplay: false, incoming: true });
   });
 
   // ── Смена хоста ────────────────────────────────────────────
