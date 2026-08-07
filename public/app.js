@@ -131,10 +131,16 @@ class RavePlayerEngine {
   }
 
   _loadYouTube(videoId) {
+    // Если плеер уже создан для этого видео — не создаём заново
+    if (this.instance && this.type === 'yt') {
+      try {
+        if (this.instance.getVideoData()?.video_id === videoId) return;
+      } catch (e) {}
+    }
+
     this._pendingYTVideoId = videoId;
 
     if (!window.YT) {
-      // API ещё не загружена — дожидаемся onYouTubeIframeAPIReady
       showLoading('Загрузка YouTube API…');
       return;
     }
@@ -173,6 +179,7 @@ class RavePlayerEngine {
   }
 
   _loadNative(url) {
+    this.container.innerHTML = '';
     const video = document.createElement('video');
     video.src = url;
     video.playsInline = true;
@@ -191,8 +198,19 @@ class RavePlayerEngine {
 
     this.container.appendChild(video);
     this.instance = video;
+    this.type = 'native';
     this.isReady = true;
+    this._pendingYTVideoId = null;
 
+    this._bindNativeEvents(video);
+  }
+
+  _loadNativeFallback(url) {
+    this.destroy();
+    this._loadNative(url);
+  }
+
+  _bindNativeEvents(video) {
     video.addEventListener('loadedmetadata', () => {
       this.duration = video.duration;
       this._updateTimeDisplay();
@@ -691,11 +709,20 @@ function loadMedia(rawUrl, opts = {}) {
 
   showLoading('Загрузка видео…');
 
+  raveEngine.destroy();
+
   if (!state.ytApiLoaded && parsed.type === SOURCE_TYPES.YOUTUBE) {
     loadYouTubeAPI();
+    // Fallback: если API не загрузится за 8 секунд — используем iframe
+    setTimeout(() => {
+      if (!state.ytApiLoaded && raveEngine.type === 'yt' && !raveEngine.isReady) {
+        console.warn('[YouTube] API не загрузился за 8с — iframe fallback');
+        hideLoading();
+        raveEngine._loadNativeFallback(`https://www.youtube.com/watch?v=${parsed.payload.videoId}`);
+      }
+    }, 8000);
   }
 
-  raveEngine.destroy();
   raveEngine.load(parsed.type === SOURCE_TYPES.YOUTUBE
     ? `https://www.youtube.com/watch?v=${parsed.payload.videoId}`
     : trimmedUrl);
