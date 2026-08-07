@@ -2251,6 +2251,17 @@ function renderDrawerPeers() {
   });
 }
 
+function updateRoomBadge() {
+  if (state.roomId) {
+    els.roomBadge.textContent = 'НАША СПАЛЬНЯ';
+    els.roomBadge.title = 'Комната: ' + state.roomId;
+  } else {
+    els.roomBadge.textContent = 'Rave';
+    els.roomBadge.title = '';
+  }
+  if (els.myRoomCode) els.myRoomCode.textContent = state.roomId || '—';
+}
+
 function renderRoomsList(rooms) {
   const container = document.getElementById('roomList');
   const emptyEl = document.getElementById('roomsEmpty');
@@ -2279,9 +2290,7 @@ function renderRoomsList(rooms) {
       if (!roomId) return;
       state.roomId = roomId;
       window.currentRoomId = roomId;
-      els.roomBadge.textContent = state.roomId;
-      els.roomBadge.title = 'Комната: ' + state.roomId;
-      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+      updateRoomBadge();
 
       if (state.socket) {
         state.socket.emit('leave-room');
@@ -2816,9 +2825,7 @@ function joinRoomByCode() {
   // Переключаем комнату: переподключаемся с новым room_id
   state.roomId = roomId;
   window.currentRoomId = roomId;
-  els.roomBadge.textContent = state.roomId;
-  els.roomBadge.title = 'Комната: ' + state.roomId;
-  els.myRoomCode.textContent = state.roomId;
+  updateRoomBadge();
 
   // Переподключаемся к серверу с новой комнатой
       if (state.socket) {
@@ -2849,9 +2856,7 @@ function bindUI() {
 
       state.roomId = inputVal;
       window.currentRoomId = inputVal;
-      els.roomBadge.textContent = state.roomId;
-      els.roomBadge.title = 'Комната: ' + state.roomId;
-      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+      updateRoomBadge();
 
       if (state.socket) {
         state.socket.emit('leave-room');
@@ -2929,9 +2934,7 @@ function bindUI() {
         }
         state.roomId = res.roomId;
         window.currentRoomId = res.roomId;
-        els.roomBadge.textContent = state.roomId;
-        els.roomBadge.title = 'Комната: ' + state.roomId;
-        if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+        updateRoomBadge();
 
         showRoomView();
         setActiveTab('rooms-tab');
@@ -2958,9 +2961,7 @@ function bindUI() {
       if (!roomId) return;
       state.roomId = roomId;
       window.currentRoomId = roomId;
-      els.roomBadge.textContent = state.roomId;
-      els.roomBadge.title = 'Комната: ' + state.roomId;
-      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+      updateRoomBadge();
 
       if (state.socket) {
         state.socket.emit('leave-room');
@@ -3220,9 +3221,7 @@ window.raveApp = {
   initTelegram();
 
   // Отображаем комнату в бейдже
-  els.roomBadge.textContent = state.roomId;
-  els.roomBadge.title = 'Комната: ' + state.roomId;
-  if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+  updateRoomBadge();
 
   // Привязка UI
   bindUI();
@@ -3250,9 +3249,7 @@ window.raveApp = {
     setTimeout(() => {
       state.roomId = startParam;
       window.currentRoomId = startParam;
-      els.roomBadge.textContent = state.roomId;
-      els.roomBadge.title = 'Комната: ' + state.roomId;
-      if (els.myRoomCode) els.myRoomCode.textContent = state.roomId;
+      updateRoomBadge();
       connectSocket();
       showRoomView();
     }, 500);
