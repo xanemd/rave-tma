@@ -1192,6 +1192,10 @@ function connectSocket() {
     }
 
     applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate });
+
+    if (!state.isHost && state.currentUrl && (state.currentType === SOURCE_TYPES.NATIVE || state.currentType === SOURCE_TYPES.HLS)) {
+      startNativeVideoSync(state.lastSync);
+    }
   });
 
   function applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate }) {
@@ -1232,16 +1236,22 @@ function connectSocket() {
 
     if (absDiff > 2.5) {
       player.seekTo(serverTime);
-      setSupportedPlaybackRate(player, 1.0);
+      if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
+        setSupportedPlaybackRate(player, 1.0);
+      }
       state.currentPlaybackRate = 1.0;
       console.log('[SYNC] Seek to serverTime due to large diff:', serverTime.toFixed(2), 'Diff:', diff.toFixed(2));
     } else if (absDiff > 0.5) {
       const targetRate = diff > 0 ? 0.95 : 1.05;
-      setSupportedPlaybackRate(player, targetRate);
+      if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
+        setSupportedPlaybackRate(player, targetRate);
+      }
       state.currentPlaybackRate = targetRate;
       console.log('[SYNC] Adjusting rate to:', targetRate, 'Diff:', diff.toFixed(2), 'absDiff:', absDiff.toFixed(2));
     } else {
-      setSupportedPlaybackRate(player, 1.0);
+      if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
+        setSupportedPlaybackRate(player, 1.0);
+      }
       state.currentPlaybackRate = 1.0;
       console.log('[SYNC] Rate normalized to 1.0, Diff:', diff.toFixed(2));
     }
@@ -1829,7 +1839,6 @@ function setSupportedPlaybackRate(player, targetRate) {
 
 function syncDirectVideo(videoEl, syncParams) {
   if (!videoEl || videoEl.readyState < 2) return;
-  if (state.isSyncing) return;
 
   const { anchorTime, anchorTimestamp, isPlaying } = syncParams;
   const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);

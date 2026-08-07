@@ -220,13 +220,15 @@ input {
 .player-section {
   flex-shrink: 0;
   background: #000;
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 22vh !important;
-  max-height: 170px !important;
-  min-height: 130px !important;
+  height: 26vh !important;
+  max-height: 210px !important;
+  min-height: 160px !important;
   overflow: hidden;
 }
 
