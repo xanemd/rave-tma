@@ -1340,6 +1340,11 @@ function connectSocket() {
     renderDrawerPeers();
   });
 
+  s.on('spawn-compliment', () => {
+    console.log('[Sync] spawn-compliment ←');
+    spawnCompliment();
+  });
+
   // ── Чат ───────────────────────────────────────────────────
   s.on('CHAT', (data) => {
     console.log('[Chat] ←', data);
@@ -3185,9 +3190,6 @@ function spawnCompliment() {
     msg.remove();
   }, 5200);
 }
-
-// Таймер: раз в 8 минут
-setInterval(spawnCompliment, 480000);
 
 // ═══════════════════════════════════════════════════════════
 // window.raveApp — публичный API для inline onclick в index.html
