@@ -1340,9 +1340,9 @@ function connectSocket() {
     renderDrawerPeers();
   });
 
-  s.on('spawn-compliment', () => {
-    console.log('[Sync] spawn-compliment ←');
-    spawnCompliment();
+  s.on('spawn-compliment', ({ text } = {}) => {
+    console.log('[Sync] spawn-compliment ←', text);
+    spawnCompliment(text);
   });
 
   // ── Чат ───────────────────────────────────────────────────
@@ -3172,14 +3172,14 @@ const COMPLIMENTS = [
   'Люблю тебя до Луны и обратно! 🌌❤️',
 ];
 
-function spawnCompliment() {
+function spawnCompliment(text) {
   const container = document.getElementById('room-view-screen') || document.body;
   if (!container) return;
 
   const msg = document.createElement('div');
   msg.className = 'floating-compliment';
 
-  const randomText = COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
+  const randomText = text || COMPLIMENTS[Math.floor(Math.random() * COMPLIMENTS.length)];
   msg.innerText = randomText;
 
   const randomOffset = (Math.random() - 0.5) * 80;
