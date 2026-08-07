@@ -63,6 +63,7 @@ const state = {
 
   peers: [],
   viewers: 1,
+  roomUsers: [],
 
   userName: 'Гость',
   userId: null,
@@ -1028,7 +1029,7 @@ function connectSocket() {
     startClockSync();
     if (state.roomId) {
       window.currentRoomId = state.roomId;
-      s.emit('join-room', { roomId: state.roomId });
+      s.emit('join-room', { roomId: state.roomId, nickname: state.userName });
     }
     flushPendingSocketEvents();
   });
@@ -1327,6 +1328,12 @@ function connectSocket() {
       name: i === 0 ? 'Участник 1' : 'Участник ' + (i + 1),
     }));
     updatePeersCount();
+    renderDrawerPeers();
+  });
+
+  s.on('room-users-update', (users) => {
+    console.log('[Sync] room-users-update ←', users);
+    state.roomUsers = Array.isArray(users) ? users : [];
     renderDrawerPeers();
   });
 
@@ -2080,7 +2087,7 @@ function joinRoom(roomId) {
   window.currentRoomId = roomId;
   state.roomId = roomId;
   if (state.socket && state.connected) {
-    state.socket.emit('join-room', { roomId });
+    state.socket.emit('join-room', { roomId, nickname: state.userName });
   }
   showRoomView();
 }
@@ -2227,14 +2234,17 @@ function renderQueue() {
 function renderDrawerPeers() {
   if (!els.drawerPeers) return;
 
-  const peersHtml = [
-    `<div class="drawer-peer">🎬 Вы (${escapeHtml(state.userName)})</div>`,
-    ...state.peers.map((p) => (
-      `<div class="drawer-peer">👤 ${escapeHtml(p.name)}</div>`
-    )),
-  ].join('');
+  const myId = state.socket?.id;
+  const peersHtml = state.roomUsers.map((u) => {
+    const isMe = u.socketId === myId;
+    const name = escapeHtml(isMe ? state.userName : (u.nickname || 'Гость'));
+    if (u.isHost) {
+      return `<div class="drawer-peer">👑 ${isMe ? 'Вы (' + name + ')' : name}</div>`;
+    }
+    return `<div class="drawer-peer">💕 ${isMe ? 'Вы (' + name + ')' : name}</div>`;
+  }).join('');
 
-  els.drawerPeers.innerHTML = peersHtml;
+  els.drawerPeers.innerHTML = peersHtml || '<div class="drawer-peer">Нет участников</div>';
 }
 
 function renderRoomsList(rooms) {
@@ -2726,7 +2736,6 @@ function sendChatMessage() {
 function openDrawer() {
   els.mediaDrawer.classList.add('open');
   els.drawerOverlay.classList.remove('hidden');
-  setTimeout(() => els.urlInput.focus(), 300);
 }
 
 function closeDrawer() {

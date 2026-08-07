@@ -95,6 +95,22 @@ function createRoomRecord(roomId, name, hostId) {
   };
 }
 
+function buildUsersList(room, currentSocketId) {
+  if (!room || !room.users) return [];
+  return [...room.users.entries()].map(([socketId, info]) => ({
+    socketId,
+    nickname: info.nickname || 'Гость',
+    isHost: room.hostId === socketId,
+    isMe: socketId === currentSocketId,
+  }));
+}
+
+function emitRoomUsers(room, socket) {
+  if (!room || !socket) return;
+  const users = buildUsersList(room, socket.id);
+  socket.emit('room-users-update', users);
+}
+
 function getPublicRoomsList() {
   const list = [];
   for (const [id, room] of rooms.entries()) {
@@ -182,6 +198,9 @@ io.on('connection', (socket) => {
       room.hostId = socket.id;
     }
 
+    if (!room.users) room.users = new Map();
+    room.users.set(socket.id, { id: socket.id, nickname: 'Гость' });
+
     console.log(
       `[+] ${socket.id} подключился в "${roomId}" ` +
       `(зрителей: ${room.viewers}, хост: ${room.hostId === socket.id ? 'ДА' : room.hostId})`
@@ -211,6 +230,8 @@ io.on('connection', (socket) => {
       viewers: room.viewers,
     });
 
+    emitRoomUsers(room, socket);
+    io.to(roomId).emit('room-users-update', buildUsersList(room, null));
     broadcastRoomsUpdate();
   } else {
     socket.emit('hello', {
@@ -294,7 +315,7 @@ io.on('connection', (socket) => {
     socket.join(roomId);
     socket.currentRoomId = roomId;
     if (!room.users) room.users = new Map();
-    room.users.set(socket.id, { id: socket.id });
+    room.users.set(socket.id, { id: socket.id, nickname: (data && data.nickname) || 'Гость' });
     if (!alreadyInRoom) room.viewers += 1;
 
     socket.emit('hello', {
@@ -305,10 +326,11 @@ io.on('connection', (socket) => {
       message: 'Подключено к комнате синхронизации'
     });
 
-    // Отправляем текущее состояние видео новенькому
     socket.emit('init-room-state', getRoomState(room));
 
-    io.emit('rooms-updated', getPublicRoomsList());
+    emitRoomUsers(room, socket);
+    io.to(roomId).emit('room-users-update', buildUsersList(room, null));
+    io.to(roomId).emit('rooms-updated', getPublicRoomsList());
   });
 
   // ── Чат (безопасная отправка сообщений) ────────────────────
@@ -662,7 +684,15 @@ io.on('connection', (socket) => {
       }
     }
 
+    if (room.users && room.users.has(socket.id)) {
+      room.users.delete(socket.id);
+    }
+
     const remainingAfter = [...io.sockets.adapter.rooms.get(currentId) || []];
+    if (remainingAfter.length > 0) {
+      io.to(currentId).emit('room-users-update', buildUsersList(room, null));
+    }
+
     if (remainingAfter.length === 0) {
       rooms.delete(currentId);
       console.log(`[🗑] Комната "${currentId}" удалена (пуста)`);
