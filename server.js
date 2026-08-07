@@ -300,7 +300,7 @@ io.on('connection', (socket) => {
     });
 
     // Отправляем текущее состояние видео новенькому
-    socket.emit('ROOM_STATE', getRoomState(room));
+    socket.emit('init-room-state', getRoomState(room));
 
     io.emit('rooms-updated', getPublicRoomsList());
   });
