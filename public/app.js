@@ -334,10 +334,6 @@ class RavePlayerEngine {
       this._updateTimeDisplay();
     });
 
-    video.addEventListener('seeked', () => {
-      this._updateTimeDisplay();
-    });
-
     video.addEventListener('ended', () => {
       state.isPlaying = false;
       this._updatePlayButton(false);
@@ -348,6 +344,7 @@ class RavePlayerEngine {
 
     video.addEventListener('play', () => {
       if (isSyncing) return;
+      this._updatePlayButton(true);
       if (state.isHost) {
         state.isPlaying = true;
         onUserPlay();
@@ -356,6 +353,7 @@ class RavePlayerEngine {
 
     video.addEventListener('pause', () => {
       if (isSyncing) return;
+      this._updatePlayButton(false);
       if (state.isHost) {
         state.isPlaying = false;
         onUserPause();
@@ -363,6 +361,7 @@ class RavePlayerEngine {
     });
 
     video.addEventListener('seeked', () => {
+      this._updateTimeDisplay();
       if (isSyncing) return;
       if (state.isHost) {
         onUserSeek(video.currentTime);
@@ -1026,7 +1025,11 @@ function connectSocket() {
   s.on('video-changed', ({ currentUrl, url }) => {
     try {
       const roomUrl = currentUrl || url;
-      if (!roomUrl || roomUrl === state.currentUrl) return;
+      if (!roomUrl) return;
+
+      if (roomUrl === state.currentUrl && raveEngine.isReady) {
+        return;
+      }
 
       showRoomView();
       state.currentUrl = roomUrl;
@@ -1070,7 +1073,6 @@ function connectSocket() {
 
       setTimeout(() => {
         if (!raveEngine.isReady) return;
-        isSyncing = true;
         const targetTime = serverTime + (Date.now() - serverTimestamp) / 2000;
         raveEngine.seekTo(targetTime);
         if (isPlaying && !raveEngine.isBuffering()) {
@@ -1206,6 +1208,8 @@ function connectSocket() {
       Object.keys(reactions).forEach((messageId) => renderMessageReactions(messageId));
     }
   });
+
+  s.on('PONG', handlePong);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1601,7 +1605,7 @@ function addChatMessage(msg, mine = false) {
   el.className = 'message-bubble ' + (mine ? 'outgoing' : 'incoming');
   el.dataset.messageId = msg.id || '';
 
-  const time = formatTime(msg.time);
+  const time = formatTime(typeof msg.time === 'number' ? msg.time : Date.now() / 1000);
   const sender = escapeHtml(msg.sender || 'Гость');
 
   let replyHtml = '';
@@ -1615,14 +1619,16 @@ function addChatMessage(msg, mine = false) {
   }
 
   let reactionsHtml = '';
-  if (msg.id && state.reactions[msg.id] && Object.keys(state.reactions[msg.id]).length > 0) {
-    reactionsHtml = '<div class="message-reactions-container">';
+  if (msg.id && state.reactions[msg.id]) {
+    const reactionItems = [];
     for (const [emoji, users] of Object.entries(state.reactions[msg.id])) {
-      if (users.length > 0) {
-        reactionsHtml += `<span class="reaction-item">${emoji} <span class="reaction-count">${users.length}</span></span>`;
+      if (users && users.length > 0) {
+        reactionItems.push(`<span class="reaction-item">${emoji} <span class="reaction-count">${users.length}</span></span>`);
       }
     }
-    reactionsHtml += '</div>';
+    if (reactionItems.length > 0) {
+      reactionsHtml = '<div class="message-reactions-container">' + reactionItems.join('') + '</div>';
+    }
   }
 
   el.innerHTML = `
@@ -1630,10 +1636,12 @@ function addChatMessage(msg, mine = false) {
     ${replyHtml}
     <span class="message-text">${escapeHtml(msg.text)}</span>
     <span class="message-time">${time}</span>
-    ${reactionsHtml}
   `;
 
    els.chatMessages.appendChild(el);
+   if (msg.id && state.reactions[msg.id]) {
+     renderMessageReactions(msg.id);
+   }
    attachMessageEvents(el);
    scrollChatToBottom();
 }
@@ -1642,15 +1650,42 @@ function attachMessageEvents(messageEl) {
   if (!messageEl) return;
 
   let touchTimer = null;
+  let startX = 0;
+  let startY = 0;
+  let isSwiping = false;
 
   messageEl.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+    isSwiping = false;
+    
     touchTimer = setTimeout(() => {
       openReactionsQuickPanel(messageEl);
     }, 400);
   }, { passive: true });
 
-  messageEl.addEventListener('touchend', () => { if (touchTimer) clearTimeout(touchTimer); });
-  messageEl.addEventListener('touchmove', () => { if (touchTimer) clearTimeout(touchTimer); });
+  messageEl.addEventListener('touchmove', (e) => {
+    if (touchTimer) clearTimeout(touchTimer);
+    
+    if (e.touches && e.touches.length === 1) {
+      const deltaX = e.touches[0].clientX - startX;
+      const deltaY = e.touches[0].clientY - startY;
+      
+      if (Math.abs(deltaX) > 20 && Math.abs(deltaX) > Math.abs(deltaY)) {
+        isSwiping = true;
+        const msgId = messageEl.dataset.messageId;
+        if (msgId) {
+          triggerReplyToMessage(messageEl);
+        }
+      }
+    }
+  }, { passive: true });
+
+  messageEl.addEventListener('touchend', () => {
+    if (touchTimer) clearTimeout(touchTimer);
+    touchTimer = null;
+  });
+  
   messageEl.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
 }
 
@@ -1734,17 +1769,24 @@ function renderMessageReactions(messageId) {
   const existing = msgEl.querySelector('.message-reactions-container');
   if (existing) existing.remove();
 
-  if (state.reactions[messageId] && Object.keys(state.reactions[messageId]).length > 0) {
-    const container = document.createElement('div');
-    container.className = 'message-reactions-container';
-    for (const [emoji, users] of Object.entries(state.reactions[messageId])) {
-      if (users.length > 0) {
-        container.innerHTML += `<span class="reaction-item">${emoji} <span class="reaction-count">${users.length}</span></span>`;
-      }
+  const reactionsData = state.reactions[messageId];
+  if (!reactionsData || Object.keys(reactionsData).length === 0) return;
+
+  const reactionItems = [];
+  for (const [emoji, users] of Object.entries(reactionsData)) {
+    if (users && users.length > 0) {
+      reactionItems.push(`<span class="reaction-item">${emoji} <span class="reaction-count">${users.length}</span></span>`);
     }
-    const timeEl = msgEl.querySelector('.message-time');
-    if (timeEl) timeEl.insertAdjacentElement('afterend', container);
   }
+
+  if (reactionItems.length === 0) return;
+
+  const container = document.createElement('div');
+  container.className = 'message-reactions-container';
+  container.innerHTML = reactionItems.join('');
+
+  const timeEl = msgEl.querySelector('.message-time');
+  if (timeEl) timeEl.insertAdjacentElement('afterend', container);
 }
 
 function sendReaction(messageId, emoji) {
