@@ -117,6 +117,7 @@ class RavePlayerEngine {
 
   load(url) {
     this.isReady = false;
+    this.pendingPlay = false;
     this.duration = 0;
     this.container.innerHTML = '';
     const ytId = this.extractYTId(url);
@@ -152,7 +153,15 @@ class RavePlayerEngine {
     const iframe = document.createElement('iframe');
     iframe.id = 'yt-frame';
     iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&rel=0&playsinline=1&disablekb=1&mute=1`;
+    iframe.allow = "autoplay; encrypted-media";
     this.container.appendChild(iframe);
+
+    const readyTimeout = setTimeout(() => {
+      if (!this.isReady) {
+        this.isReady = true;
+        if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
+      }
+    }, 4000);
 
     this.instance = new YT.Player('yt-frame', {
       videoId,
@@ -165,14 +174,21 @@ class RavePlayerEngine {
       },
       events: {
         onReady: () => {
+          clearTimeout(readyTimeout);
           this.isReady = true;
           this._pendingYTVideoId = null;
           this.duration = this.instance.getDuration();
           this._updateTimeDisplay();
           hideLoading();
+          if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
         },
         onStateChange: (e) => {
           this._handleYTStateChange(e);
+        },
+        onError: (e) => {
+          clearTimeout(readyTimeout);
+          this.isReady = true;
+          hideLoading();
         },
       },
     });
@@ -184,6 +200,7 @@ class RavePlayerEngine {
     video.src = url;
     video.playsInline = true;
     video.controls = false;
+    video.crossOrigin = 'anonymous';
     video.preload = 'auto';
     video.muted = true;
 
@@ -264,11 +281,20 @@ class RavePlayerEngine {
   }
 
   play() {
-    if (!this.isReady) return;
+    if (!this.isReady) {
+      this.pendingPlay = true;
+      return;
+    }
     if (this.type === 'yt' && this.instance?.playVideo) {
       this.instance.playVideo();
-    } else if (this.instance) {
-      this.instance.play().catch(() => {});
+    } else if (this.type === 'native' && this.instance) {
+      const promise = this.instance.play();
+      if (promise !== undefined) {
+        promise.catch(() => {
+          this.instance.muted = true;
+          this.instance.play();
+        });
+      }
     }
     this._updatePlayButton(true);
     state.isPlaying = true;
@@ -1149,9 +1175,15 @@ function handlePong(data) {
 
 window.raveApp = {
   togglePlayPause() {
-    if (!raveEngine.isReady || !state.isHost) return;
+    if (raveEngine.type === 'native' && raveEngine.instance) {
+      raveEngine.instance.muted = false;
+    }
+    if (raveEngine.type === 'yt' && raveEngine.instance?.unMute) {
+      raveEngine.instance.unMute();
+    }
 
-    if (isSyncing) return;
+    if (!raveEngine.isReady) return;
+    if (!state.isHost || isSyncing) return;
 
     if (raveEngine.isPaused() && !raveEngine.isBuffering()) {
       isSyncing = true;
