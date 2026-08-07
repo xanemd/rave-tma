@@ -794,8 +794,7 @@ function loadNativeOrHls(url, autoplay = true) {
     hideLoading();
     tryUnmutePlayer();
     if (!state.isHost && state.lastSync) {
-      const serverTime = state.lastSync.anchorTime + (state.lastSync.isPlaying ? (Date.now() - state.lastSync.anchorTimestamp) / 1000 : 0);
-      startNativeVideoSync(serverTime);
+      startNativeVideoSync(state.lastSync);
     }
   }, { once: true });
 
@@ -821,8 +820,7 @@ function loadNativeOrHls(url, autoplay = true) {
         tryUnmutePlayer();
         setStatus('📡 HLS поток готов');
         if (!state.isHost && state.lastSync) {
-          const serverTime = state.lastSync.anchorTime + (state.lastSync.isPlaying ? (Date.now() - state.lastSync.anchorTimestamp) / 1000 : 0);
-          startNativeVideoSync(serverTime);
+          startNativeVideoSync(state.lastSync);
         }
         if (autoplay) {
           video.play().catch(() => handleAutoplayBlocked('HLS'));
@@ -855,8 +853,7 @@ function loadNativeOrHls(url, autoplay = true) {
         tryUnmutePlayer();
         setStatus('📡 HLS поток готов (нативно)');
         if (!state.isHost && state.lastSync) {
-          const serverTime = state.lastSync.anchorTime + (state.lastSync.isPlaying ? (Date.now() - state.lastSync.anchorTimestamp) / 1000 : 0);
-          startNativeVideoSync(serverTime);
+          startNativeVideoSync(state.lastSync);
         }
         if (autoplay) video.play().catch(() => handleAutoplayBlocked('HLS'));
       }, { once: true });
@@ -872,8 +869,7 @@ function loadNativeOrHls(url, autoplay = true) {
     tryUnmutePlayer();
     video.addEventListener('loadedmetadata', () => {
       if (!state.isHost && state.lastSync) {
-        const serverTime = state.lastSync.anchorTime + (state.lastSync.isPlaying ? (Date.now() - state.lastSync.anchorTimestamp) / 1000 : 0);
-        startNativeVideoSync(serverTime);
+        startNativeVideoSync(state.lastSync);
       }
     }, { once: true });
     if (autoplay) {
@@ -1831,8 +1827,12 @@ function setSupportedPlaybackRate(player, targetRate) {
   }
 }
 
-function syncDirectVideo(videoEl, serverTime) {
+function syncDirectVideo(videoEl, syncParams) {
   if (!videoEl || videoEl.readyState < 2) return;
+  if (state.isSyncing) return;
+
+  const { anchorTime, anchorTimestamp, isPlaying } = syncParams;
+  const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);
 
   const diff = videoEl.currentTime - serverTime;
   const absDiff = Math.abs(diff);
@@ -1853,14 +1853,15 @@ function syncDirectVideo(videoEl, serverTime) {
   }
 }
 
-function startNativeVideoSync(serverTime) {
+function startNativeVideoSync(syncParams) {
   stopNativeVideoSync();
+  if (!syncParams) return;
   state.nativeVideoSyncInterval = setInterval(() => {
     const video = els.nativeVideo;
     if (!video || video.readyState < 2) return;
     if (state.isHost) return;
     if (state.applyingRemote) return;
-    syncDirectVideo(video, serverTime);
+    syncDirectVideo(video, syncParams);
   }, 1000);
 }
 
