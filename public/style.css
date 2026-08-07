@@ -89,10 +89,12 @@ input {
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-bottom: 1px solid var(--border);
-  padding: calc(8px + var(--safe-top)) 12px 8px 12px;
+  padding: 2px 8px !important;
+  font-size: 11px !important;
+  line-height: 1.2 !important;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
   z-index: 10;
 }
 
@@ -222,8 +224,9 @@ input {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 240px;
-  max-height: 280px;
+  height: 22vh !important;
+  max-height: 170px !important;
+  min-height: 130px !important;
   overflow: hidden;
 }
 
@@ -386,16 +389,18 @@ input {
 .chat-container {
   position: relative;
   overflow: hidden;
-  flex: 1;
-  min-height: 0;
-  height: 100%;
+  flex: 1 1 auto !important;
+  display: flex;
+  flex-direction: column;
+  min-height: 0 !important;
 }
 
 .chat-messages {
   position: relative;
   z-index: 1;
-  height: 100%;
-  overflow-y: auto;
+  flex: 1 1 auto !important;
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
   padding: 10px;
   display: flex;
   flex-direction: column;
@@ -650,6 +655,7 @@ input {
 .chat-input-wrapper {
   flex-shrink: 0;
   background: var(--tg-bg);
+  padding: 6px 10px !important;
 }
 
 #reply-preview {
