@@ -841,6 +841,8 @@ function connectSocket() {
   s.on('init-room-state', (data) => {
     console.log('[Socket] init-room-state ←', data);
 
+    showRoomView();
+
     const roomUrl = data.currentUrl;
     const roomTime = getServerAuthoritativePosition(data);
     const roomPlaying = !!data.isPlaying;
@@ -924,6 +926,8 @@ function connectSocket() {
     if (currentUrl && currentUrl !== state.currentUrl) {
       state.currentUrl = currentUrl;
       state.currentType = currentType || state.currentType;
+
+      showRoomView();
 
       if (els.nowPlayingTitle) {
         els.nowPlayingTitle.textContent = formatTitle(currentUrl);
@@ -1505,8 +1509,100 @@ function addChatMessage(msg, mine = false) {
     ${reactionsHtml}
   `;
 
-  els.chatMessages.appendChild(el);
-  scrollChatToBottom();
+   els.chatMessages.appendChild(el);
+   attachMessageTouchHandlers(el);
+   scrollChatToBottom();
+}
+
+function attachMessageTouchHandlers(el) {
+  if (!el) return;
+
+  let startX = 0;
+  let currentX = 0;
+  let touchTimer = null;
+
+  el.addEventListener('touchstart', (e) => {
+    try {
+      startX = e.touches[0].clientX;
+      currentX = startX;
+
+      touchTimer = setTimeout(() => {
+        showReactionsMenu(el, e);
+      }, 500);
+    } catch (err) {
+      console.error('touchstart error:', err);
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchmove', (e) => {
+    try {
+      if (touchTimer) clearTimeout(touchTimer);
+      if (!startX) return;
+
+      currentX = e.touches[0].clientX;
+      const diffX = currentX - startX;
+
+      if (diffX > 50 && diffX < 150) {
+        el.style.transform = `translateX(${diffX}px)`;
+      }
+    } catch (err) {
+      console.error('touchmove error:', err);
+    }
+  }, { passive: true });
+
+  el.addEventListener('touchend', () => {
+    try {
+      if (touchTimer) clearTimeout(touchTimer);
+
+      const diffX = currentX - startX;
+      el.style.transform = '';
+
+      if (diffX > 80) {
+        triggerReplyToMessage(el);
+      }
+
+      startX = 0;
+      currentX = 0;
+    } catch (err) {
+      console.error('touchend error:', err);
+    }
+  });
+}
+
+function showReactionsMenu(el, e) {
+  try {
+    const msgId = el.dataset.messageId;
+    if (!msgId) return;
+
+    const emoji = prompt('Введите реакцию (например, ❤️, 👍, 😂):');
+    if (emoji) {
+      window.raveApp.sendReaction(msgId, emoji);
+    }
+  } catch (err) {
+    console.error('showReactionsMenu error:', err);
+  }
+}
+
+function triggerReplyToMessage(el) {
+  try {
+    const msgId = el.dataset.messageId;
+    const text = el.querySelector('.message-text')?.textContent || '';
+    const senderEl = el.querySelector('.message-sender');
+    const sender = senderEl ? senderEl.textContent : 'Гость';
+
+    if (msgId) {
+      state.replyTo = { id: msgId, text, sender };
+      const replyPreview = document.getElementById('reply-preview');
+      if (replyPreview) {
+        replyPreview.style.display = 'block';
+        const t = replyPreview.querySelector('.reply-text');
+        if (t) t.textContent = text.slice(0, 80);
+      }
+      window.dispatchEvent(new CustomEvent('reply-to', { detail: { messageId: msgId, text, sender } }));
+    }
+  } catch (err) {
+    console.error('triggerReplyToMessage error:', err);
+  }
 }
 
 function cancelReply() {
