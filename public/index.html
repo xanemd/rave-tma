@@ -7,11 +7,9 @@
   <!-- Telegram WebApp SDK -->
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
-  <!-- YouTube IFrame API (для YouTube-плеера) -->
-  <script src="https://www.youtube.com/iframe_api"></script>
-
-  <!-- HLS.js — для воспроизведения потоков .m3u8 -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+   <!-- YouTube IFrame API (загружается динамически в app.js) -->
+   <!-- HLS.js — для воспроизведения потоков .m3u8 -->
+   <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
   <!-- Socket.io клиент (подаётся сервером Express по умолчанию) -->
   <script src="/socket.io/socket.io.js"></script>
@@ -70,61 +68,41 @@
 
       <!-- ── ПЛЕЕР ─────────────────────────────────────────── -->
       <section class="player-section" id="playerSection">
-        <!-- Контейнер плеера: YouTube via loadYouTubeVideo / MP4 via loadNativeOrHls -->
-        <div id="player-container" style="width:100%;height:100%;position:relative;">
-          <div class="player-placeholder" id="placeholder">
-            <div class="placeholder-icon">🎥</div>
-            <div class="placeholder-title">Начнём смотреть вместе?</div>
-            <div class="placeholder-sub">
-              Нажмите «Сменить видео» и вставьте ссылку.<br>
-              Всё, что вы запускаете, синхронно увидит ваш собеседник.
+        <div id="rave-player-viewport">
+          <!-- Слой монтирования видео (YouTube iframe или <video>) -->
+          <div id="player-render-layer"></div>
+
+          <!-- Прозрачный слой для перехвата кликов/тапов -->
+          <div id="player-touch-overlay" onclick="window.raveApp.togglePlayPause()"></div>
+
+          <!-- Кастомный интерфейс плеера (Rave Style) -->
+          <div id="rave-controls-bar">
+            <button type="button" id="rave-play-btn" onclick="window.raveApp.togglePlayPause()">▶</button>
+            <div id="rave-progress-container" onclick="window.raveApp.handleSeek(event)">
+              <div id="rave-progress-fill"></div>
             </div>
+            <span id="rave-time-display">00:00 / 00:00</span>
           </div>
-          <div id="video-loader" style="display:none; position:absolute; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.7); z-index:10; align-items:center; justify-content:center; color:#fff; font-size:14px;">
-            Загрузка видео…
-          </div>
-        </div>
-
-        <!-- Контейнер под YouTube API (legacy, используется drawer) -->
-        <div id="ytPlayerHost" class="player-shell hidden"></div>
-
-        <!-- Контейнер под HTML5 video / HLS -->
-        <div id="videoHost" class="player-shell hidden">
-          <video
-            id="nativeVideo"
-            class="native-video"
-            controls
-            playsinline
-            preload="auto"
-            muted
-          ></video>
-        </div>
-
-        <!-- Контейнер под произвольный iframe -->
-        <div id="iframeHost" class="player-shell hidden">
-          <iframe
-            id="embedFrame"
-            class="embed-frame"
-            src="about:blank"
-            frameborder="0"
-            allow="autoplay; fullscreen; encrypted-media; picture-in-picture; accelerometer; gyroscope"
-            allowfullscreen
-          ></iframe>
         </div>
 
         <!-- Текущий статус видео -->
-        <div class="now-playing" id="nowPlaying">
+        <div class="now-playing hidden" id="nowPlaying">
           <span class="now-playing-label">Сейчас играет:</span>
           <span class="now-playing-title" id="nowPlayingTitle">—</span>
         </div>
 
-        <div class="diagnostic-panel" id="diagnosticPanel">
+        <!-- Индикатор загрузки -->
+        <div class="loading-overlay hidden" id="loadingOverlay">
+          <div class="spinner"></div>
+          <div class="loading-text" id="loadingText">Загрузка видео…</div>
+        </div>
+
+        <div class="diagnostic-panel hidden" id="diagnosticPanel">
           <div class="diagnostic-row"><span>ROOM_STATE:</span> <span id="diagRoomState">Ожидание...</span></div>
           <div class="diagnostic-row"><span>URL:</span> <span id="diagUrl">—</span></div>
           <div class="diagnostic-row"><span>TYPE:</span> <span id="diagType">—</span></div>
           <div class="diagnostic-row"><span>STATUS:</span> <span id="diagStatus">—</span></div>
         </div>
-
       </section>
 
       <!-- ── ЧАТ ────────────────────────────────────────────── -->
@@ -245,12 +223,6 @@
 
     <!-- Оверлей для закрытия панели -->
     <div class="drawer-overlay hidden" id="drawerOverlay"></div>
-
-    <!-- Индикатор загрузки (вместо чёрного экрана) -->
-    <div class="loading-overlay hidden" id="loadingOverlay">
-      <div class="spinner"></div>
-      <div class="loading-text" id="loadingText">Загрузка видео…</div>
-    </div>
 
   </div>
 

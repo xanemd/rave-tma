@@ -126,6 +126,20 @@ function getRoomTime(room) {
 }
 
 /**
+ * Собирает sync-state payload — единый формат для рассылки всем клиентам.
+ * Содержит текущую позицию, статус воспроизведения и метаданные видео.
+ */
+function buildSyncState(room, serverTimestamp) {
+  return {
+    serverTime: getRoomTime(room),
+    isPlaying: room.isPlaying,
+    serverTimestamp: serverTimestamp || Date.now(),
+    currentUrl: room.currentUrl,
+    currentType: room.currentType,
+  };
+}
+
+/**
  * Полное состояние комнаты для нового гостя.
  */
 function getRoomState(room) {
@@ -179,17 +193,7 @@ io.on('connection', (socket) => {
       message: 'Подключено к комнате синхронизации'
     });
 
-    socket.emit('init-room-state', {
-      currentUrl: room.currentUrl,
-      currentType: room.currentType,
-      serverTime: getRoomTime(room),
-      isPlaying: room.isPlaying,
-      anchorTime: room.anchorTime,
-      anchorTimestamp: room.anchorTimestamp,
-      serverTimestamp: Date.now(),
-      queue: room.queue,
-      viewers: room.viewers,
-    });
+    socket.emit('init-room-state', getRoomState(room));
 
     if (room.messages.length > 0) {
       socket.emit('CHAT_HISTORY', { messages: room.messages.slice(-50) });
@@ -300,7 +304,7 @@ io.on('connection', (socket) => {
     });
 
     // Отправляем текущее состояние видео новенькому
-    socket.emit('ROOM_STATE', getRoomState(room));
+    socket.emit('init-room-state', getRoomState(room));
 
     io.emit('rooms-updated', getPublicRoomsList());
   });
@@ -322,15 +326,55 @@ io.on('connection', (socket) => {
       io.to(currentId).emit('CHAT', payload);
     });
 
-  // ── Смена видео (безопасная) ────────────────────────────────
-  socket.on('change-video', ({ roomId, url } = {}) => {
+  // ── Смена видео (хост) ────────────────────────────────────────
+  const handleVideoChange = (roomId, url, type) => {
     const room = getRoom(roomId);
     if (!room) return;
 
     room.currentUrl = url;
+    room.currentType = type;
     room.anchorTime = 0;
     room.anchorTimestamp = Date.now();
     room.isPlaying = false;
+
+    console.log(`🎬 MEDIA  | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
+    console.log('📡 SYNC_STATE payload:', JSON.stringify(buildSyncState(room)).slice(0, 200));
+
+    io.to(roomId).emit('sync-state', buildSyncState(room));
+    io.to(roomId).emit('video-changed', { currentUrl: url, url });
+  };
+
+  socket.on('CHANGE_MEDIA', (data) => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может менять видео' });
+      return;
+    }
+
+    const url = String(data?.url || '').slice(0, 2000);
+    const type = String(data?.mediaType || '').slice(0, 32);
+    if (!url) return;
+
+    handleVideoChange(currentId, url, type);
+  });
+
+  socket.on('change-video', ({ roomId, url }) => {
+    const targetRoomId = roomId || socket.currentRoomId;
+    const room = getRoom(targetRoomId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может менять видео' });
+      return;
+    }
+
+    const normalizedUrl = String(url || '').slice(0, 2000);
+    if (!normalizedUrl) return;
+
+    handleVideoChange(targetRoomId, normalizedUrl, 'unknown');
   });
 
   // ── Выход из комнаты ────────────────────────────────────────
@@ -365,14 +409,10 @@ io.on('connection', (socket) => {
     room.anchorTimestamp = Date.now();
 
     console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-    io.to(currentId).emit('sync-state', {
-      serverTime: getRoomTime(room),
-      isPlaying: true,
-      serverTimestamp: Date.now(),
-    });
-  });
+     io.to(currentId).emit('sync-state', buildSyncState(room));
+   });
 
-  socket.on('PAUSE', (data) => {
+   socket.on('PAUSE', (data) => {
     const currentId = socket.currentRoomId;
     const room = getRoom(currentId);
     if (!room) return;
@@ -390,11 +430,7 @@ io.on('connection', (socket) => {
     room.anchorTimestamp = Date.now();
 
     console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-    io.to(currentId).emit('sync-state', {
-      serverTime: getRoomTime(room),
-      isPlaying: false,
-      serverTimestamp: Date.now(),
-    });
+    io.to(currentId).emit('sync-state', buildSyncState(room));
   });
 
   socket.on('SEEK', (data) => {
@@ -413,48 +449,19 @@ io.on('connection', (socket) => {
     room.anchorTime = time;
     room.anchorTimestamp = Date.now();
 
-    console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-    io.to(currentId).emit('sync-state', {
-      serverTime: getRoomTime(room),
-      isPlaying: room.isPlaying,
-      serverTimestamp: Date.now(),
-    });
-  });
+     console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
+     io.to(currentId).emit('sync-state', buildSyncState(room));
+   });
 
-  socket.on('CHANGE_MEDIA', (data) => {
-    const currentId = socket.currentRoomId;
-    const room = getRoom(currentId);
-    if (!room) return;
-
-    if (socket.id !== room.hostId) {
-      socket.emit('ERROR', { message: 'Только хост может менять видео' });
-      return;
-    }
-
-    const payload = normalizePayload(data);
-    const url = String(payload.url || '').slice(0, 2000);
-    const type = String(payload.mediaType || '').slice(0, 32);
-
-    if (!url) return;
-
-    room.currentUrl = url;
-    room.currentType = type;
-    room.anchorTime = 0;
-    room.anchorTimestamp = Date.now();
-    room.isPlaying = true;
-
-    console.log(`🎬 MEDIA  | ${socket.id} | room=${currentId} | ${type} | ${url.slice(0, 60)}`);
-    io.to(currentId).emit('sync-state', {
-      serverTime: getRoomTime(room),
-      isPlaying: true,
-      serverTimestamp: Date.now(),
-    });
-  });
-
-  // ── Динамическая синхронизация (Rave: Server-side Master Clock) ───
+   // ── Динамическая синхронизация (Rave: Server-side Master Clock) ───
   socket.on('player-action', ({ roomId, action, time }) => {
     const room = getRoom(roomId);
     if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
 
     const now = Date.now();
 
@@ -471,11 +478,7 @@ io.on('connection', (socket) => {
       room.anchorTimestamp = now;
     }
 
-    io.to(roomId).emit('sync-state', {
-      serverTime: getRoomTime(room),
-      isPlaying: room.isPlaying,
-      serverTimestamp: now,
-    });
+     io.to(roomId).emit('sync-state', buildSyncState(room, now));
   });
 
   // ── Периодическая синхронизация времени от хоста ─────────────
@@ -501,12 +504,8 @@ io.on('connection', (socket) => {
       room.isPlaying = false;
     }
 
-    io.to(currentId).emit('sync-state', {
-      serverTime: getRoomTime(room),
-      isPlaying: room.isPlaying,
-      serverTimestamp: Date.now(),
-    });
-  });
+     io.to(currentId).emit('sync-state', buildSyncState(room));
+   });
 
   // ── Очередь видео ──────────────────────────────────────────
   socket.on('ADD_TO_QUEUE', (data) => {
@@ -561,12 +560,8 @@ io.on('connection', (socket) => {
 
     console.log(`⏭ NEXT   | ${socket.id} | room=${currentId} | ${next.url.slice(0, 50)}`);
 
-    io.to(currentId).emit('sync-state', {
-      serverTime: getRoomTime(room),
-      isPlaying: true,
-      serverTimestamp: Date.now(),
-    });
-    io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
+     io.to(currentId).emit('sync-state', buildSyncState(room));
+     io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
   });
 
   // ── Чат ─────────────────────────────────────────────────────
@@ -673,17 +668,13 @@ io.on('connection', (socket) => {
 });
 
 // ── Фоновый тикер: удержание синхронизации каждые 3 секунды ───
-setInterval(() => {
-  rooms.forEach((room, roomId) => {
-    if (room.isPlaying) {
-      io.to(roomId).emit('sync-state', {
-        serverTime: getRoomTime(room),
-        isPlaying: true,
-        serverTimestamp: Date.now(),
-      });
-    }
-  });
-}, 3000);
+ setInterval(() => {
+   rooms.forEach((room, roomId) => {
+     if (room.isPlaying) {
+       io.to(roomId).emit('sync-state', buildSyncState(room));
+     }
+   });
+ }, 3000);
 
 // ─────────────────────────────────────────────────────────────
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ

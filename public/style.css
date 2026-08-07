@@ -219,11 +219,7 @@ input {
   flex-shrink: 0;
   background: #000;
   position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 240px;
-  max-height: 280px;
+  padding: 12px;
   overflow: hidden;
 }
 
@@ -305,9 +301,9 @@ input {
   position: absolute;
   left: 0;
   right: 0;
-  bottom: 0;
+  top: 0;
   padding: 4px 10px;
-  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  background: linear-gradient(rgba(0,0,0,0.85), transparent);
   font-size: 11px;
   color: var(--tg-hint);
   display: flex;
@@ -325,21 +321,106 @@ input {
   opacity: 0.9;
 }
 
-.diagnostic-panel {
-  display: none !important; /* скрыто — мешает интерфейсу */
+#rave-player-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: #000000;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+#player-render-layer {
+  width: 100%;
+  height: 100%;
+  pointer-events: auto;
+}
+
+#player-render-layer video,
+#player-render-layer iframe {
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+  border: none;
+}
+
+#player-touch-overlay {
   position: absolute;
+  top: 0;
   left: 0;
-  right: 0;
-  bottom: 30px;
-  padding: 10px 12px;
-  background: rgba(0,0,0,0.55);
-  backdrop-filter: blur(12px);
-  border-top: 1px solid rgba(255,255,255,0.08);
+  width: 100%;
+  height: calc(100% - 44px);
+  z-index: 10;
+  cursor: pointer;
+  background: transparent;
+  pointer-events: auto;
+}
+
+#rave-controls-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 44px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 10px;
+  z-index: 20;
+  box-sizing: border-box;
+}
+
+#rave-progress-container {
+  flex: 1;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  position: relative;
+}
+
+#rave-progress-fill {
+  width: 0%;
+  height: 100%;
+  background: #e11d48;
+  border-radius: 3px;
+  transition: width 0.1s linear;
+}
+
+#rave-time-display {
   font-size: 11px;
+  color: rgba(255, 255, 255, 0.7);
+  font-family: "SF Mono", "Cascadia Code", Consolas, monospace;
+  white-space: nowrap;
+}
+
+#rave-play-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: none;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+#rave-play-btn:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.player-placeholder {
+  text-align: center;
+  padding: 24px;
+  max-width: 420px;
   color: var(--tg-text);
-  grid-template-columns: 1fr 1fr;
-  gap: 6px 10px;
-  z-index: 5;
 }
 
 .diagnostic-row {
@@ -1310,9 +1391,73 @@ input {
   80% {
     opacity: 1;
   }
-  100% {
+   100% {
     bottom: 160px;
     opacity: 0;
     transform: translateX(-50%) scale(0.95);
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Сообщения чата — защита touch-событий
+   ═══════════════════════════════════════════════════════════ */
+
+.chat-message {
+  user-select: none !important;
+  -webkit-user-select: none !important;
+  -webkit-touch-callout: none !important;
+  touch-action: pan-y;
+}
+
+/* Контейнер быстрых реакций над сообщением */
+.reactions-popover {
+  position: absolute;
+  background: #1e1e24;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 24px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+  z-index: 1000;
+  animation: popIn 0.15s ease-out;
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.6);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.reaction-btn {
+  background: none;
+  border: none;
+  font-size: 20px;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.reaction-btn:active {
+  transform: scale(1.3);
+}
+
+.reaction-more-btn {
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  cursor: pointer;
+}
+
