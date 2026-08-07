@@ -131,7 +131,7 @@ class RavePlayerEngine {
       this.pendingPlay = false;
       this.duration = 0;
       this.container.innerHTML = '';
-      const ytId = this.extractYTId(url);
+      const ytId = extractYouTubeId(url);
 
       if (ytId) {
         this.type = 'yt';
@@ -145,8 +145,9 @@ class RavePlayerEngine {
 
           const readyTimeout = setTimeout(() => {
             if (!this.isReady) {
-              this.isReady = true;
-              if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
+              console.error('YouTube Player не готов за отведённое время');
+              hideLoading();
+              showSnack('Не удалось загрузить YouTube-видео');
             }
           }, 4000);
 
@@ -155,12 +156,15 @@ class RavePlayerEngine {
               'onReady': () => {
                 clearTimeout(readyTimeout);
                 this.isReady = true;
+                hideLoading();
                 if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
               },
               'onError': (err) => {
                 console.error("YouTube Player Error:", err);
                 clearTimeout(readyTimeout);
-                this.isReady = true;
+                this.isReady = false;
+                hideLoading();
+                showSnack('Не удалось загрузить YouTube-видео');
               },
               'onStateChange': (e) => {
               if (window.raveEngine && typeof window.raveEngine._handleYTStateChange === 'function') {
@@ -205,7 +209,9 @@ class RavePlayerEngine {
       }
     } catch (error) {
       console.error("Критическая ошибка внутри RavePlayerEngine.load:", error);
-      this.isReady = true;
+      this.isReady = false;
+      hideLoading();
+      showSnack('Не удалось инициализировать видеоплеер');
     }
   }
 
@@ -236,8 +242,9 @@ class RavePlayerEngine {
 
     const readyTimeout = setTimeout(() => {
       if (!this.isReady) {
-        this.isReady = true;
-        if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
+        console.error('YouTube Player не готов за отведённое время');
+        hideLoading();
+        showSnack('Не удалось загрузить YouTube-видео');
       }
     }, 4000);
 
@@ -267,9 +274,11 @@ class RavePlayerEngine {
           }
         },
         onError: (e) => {
+          console.error('YouTube Player Error:', e);
           clearTimeout(readyTimeout);
-          this.isReady = true;
+          this.isReady = false;
           hideLoading();
+          showSnack('Не удалось загрузить YouTube-видео');
         },
       },
     });
