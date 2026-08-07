@@ -112,6 +112,9 @@
           ></iframe>
         </div>
 
+        <!-- Прозрачный слой для перехвата кликов по плееру (host only) -->
+        <div id="player-touch-overlay" onclick="window.raveApp.togglePlayPause()"></div>
+
         <!-- Текущий статус видео -->
         <div class="now-playing" id="nowPlaying">
           <span class="now-playing-label">Сейчас играет:</span>

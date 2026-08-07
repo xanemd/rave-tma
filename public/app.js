@@ -56,6 +56,8 @@ const state = {
   applyingRemote: false,
   isSyncing: false,
   currentPlaybackRate: 1.0,
+  lastSync: null,
+  clientSyncInterval: null,
 
   peers: [],
   viewers: 1,
@@ -1039,8 +1041,10 @@ function connectSocket() {
 
     if (state.isHost) {
       startPeriodicSync();
+      stopClientSyncLoop();
     } else {
       stopPeriodicSync();
+      startClientSyncLoop();
     }
   });
 
@@ -1126,8 +1130,10 @@ function connectSocket() {
 
   // ── Смена видео (простой путь) ─────────────────────────────
   s.on('video-changed', ({ url } = {}) => {
+    if (state.isHost) return;
+    if (!url || url === state.currentUrl) return;
     console.log('[Socket] video-changed ←', url);
-    renderPlayer(url);
+    loadMedia(url, { autoplay: true, incoming: true });
   });
 
   // ── Смена хоста ────────────────────────────────────────────
@@ -1145,72 +1151,97 @@ function connectSocket() {
   });
 
   // ── Rave: Server-side Master Clock + Dynamic Playback Rate ─────
-  // Сервер рассылает sync-state с серверным временем и timestamp ответа.
-  // Клиент компенсирует ping, затем плавно подстраивает playbackRate.
-  s.on('sync-state', ({ serverTime, isPlaying, serverTimestamp }) => {
-    if (state.isHost) return; // Хост — источник истины, не синхронизируемся сам с собой
+  // Сервер отправляет anchorTime/anchorTimestamp, клиент сам считает serverTime.
+  // При рассинхроне до 0.5с — нормальная скорость, 0.5-2.5с — подстройка playbackRate,
+  // >2.5с — жёсткий seek. Также поддерживается периодический клиентский опрос.
+  let lastSyncState = null;
+
+  s.on('sync-state', ({ anchorTime, anchorTimestamp, isPlaying, currentUrl, currentType, playbackRate }) => {
+    if (state.isHost) return;
+
+    lastSyncState = { anchorTime, anchorTimestamp, isPlaying, currentUrl, currentType, playbackRate };
+
+    if (currentUrl && currentUrl !== state.currentUrl) {
+      state.currentUrl = currentUrl;
+      state.currentType = currentType || state.currentType;
+      loadMedia(currentUrl, { autoplay: isPlaying, incoming: true });
+      return;
+    }
+
+    applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate });
+  });
+
+  function applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate }) {
+    if (state.isSyncing) return;
+    if (state.applyingRemote) return;
 
     const player = getActivePlayer();
-    if (!player) return;
+    if (!player) {
+      setTimeout(() => applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate }), 500);
+      return;
+    }
 
-    // А. Ping Compensation — компенсируем сетевую задержку
-    const latency = (Date.now() - serverTimestamp) / 2000;
-    const targetTime = serverTime + latency;
+    const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);
     const localTime = player.getCurrentTime();
-    const diff = targetTime - localTime;
+    const diff = localTime - serverTime;
+    const absDiff = Math.abs(diff);
 
-    state.isSyncing = true; // Блокируем отправку локальных событий
+    state.isSyncing = true;
 
-    // Б. Состояние Play / Pause — только при реальном рассинхроне состояния
-    const isPlayerPaused = player.isPaused();
-    if (isPlaying && isPlayerPaused) {
+    const playerPaused = player.isPaused();
+    if (isPlaying && playerPaused && !player.isBuffering()) {
       player.play();
-      player.setPlaybackRate(state.currentPlaybackRate);
       setTimeout(() => { state.isSyncing = false; }, 400);
       return;
-    } else if (!isPlaying && !isPlayerPaused) {
+    } else if (!isPlaying && !playerPaused) {
       player.pause();
-      player.setPlaybackRate(1.0);
-      state.currentPlaybackRate = 1.0;
       setTimeout(() => { state.isSyncing = false; }, 300);
       return;
     }
 
-    if (!isPlaying && isPlayerPaused) {
-      // Paused on both sides — просто синхронизируем позицию если сильно отстаём
-      if (Math.abs(diff) > 2.5) {
-        player.seekTo(targetTime);
+    if (!isPlaying && playerPaused) {
+      if (absDiff > 2.5) {
+        player.seekTo(serverTime);
       }
       setTimeout(() => { state.isSyncing = false; }, 400);
       return;
     }
 
-    // В. Логика Rave: дифференциальная подстройка вместо каскада пауз
-    const absDiff = Math.abs(diff);
-
     if (absDiff > 2.5) {
-      player.seekTo(targetTime);
+      player.seekTo(serverTime);
       player.setPlaybackRate(1.0);
       state.currentPlaybackRate = 1.0;
-    } else if (diff > 0.3) {
-      if (state.currentPlaybackRate !== 1.05) {
+    } else if (absDiff > 0.5) {
+      if (diff > 0) {
+        player.setPlaybackRate(0.95);
+        state.currentPlaybackRate = 0.95;
+      } else {
         player.setPlaybackRate(1.05);
         state.currentPlaybackRate = 1.05;
       }
-    } else if (diff < -0.3) {
-      if (state.currentPlaybackRate !== 0.95) {
-        player.setPlaybackRate(0.95);
-        state.currentPlaybackRate = 0.95;
-      }
     } else {
-      if (state.currentPlaybackRate !== 1.0) {
-        player.setPlaybackRate(1.0);
-        state.currentPlaybackRate = 1.0;
-      }
+      player.setPlaybackRate(1.0);
+      state.currentPlaybackRate = 1.0;
     }
 
     setTimeout(() => { state.isSyncing = false; }, 400);
-  });
+  }
+
+  function startClientSyncLoop() {
+    stopClientSyncLoop();
+    state.clientSyncInterval = setInterval(() => {
+      if (state.isHost) return;
+      if (!lastSyncState) return;
+      applySyncFromState(lastSyncState);
+    }, 1500);
+  }
+
+  function stopClientSyncLoop() {
+    if (state.clientSyncInterval) {
+      clearInterval(state.clientSyncInterval);
+      state.clientSyncInterval = null;
+    }
+  }
 
   // ── Обновление списка комнат ────────────────────────────────
   s.on('rooms-updated', (rooms) => {
@@ -1725,6 +1756,9 @@ function getActivePlayer() {
       isPaused: () => {
         try { return state.ytPlayer.getPlayerState() !== YT.PlayerState.PLAYING; } catch (e) { return true; }
       },
+      isBuffering: () => {
+        try { return state.ytPlayer.getPlayerState() === YT.PlayerState.BUFFERING; } catch (e) { return false; }
+      },
       setPlaybackRate: (rate) => {
         try { state.ytPlayer.setPlaybackRate(rate); } catch (e) { /* ignore */ }
       },
@@ -1741,6 +1775,7 @@ function getActivePlayer() {
       pause: () => video.pause(),
       seekTo: (time) => { video.currentTime = time; },
       isPaused: () => video.paused,
+      isBuffering: () => video.readyState < 3 || video.seeking,
       setPlaybackRate: (rate) => { video.playbackRate = rate; },
       setCurrentTime: (time) => { video.currentTime = time; },
     };
@@ -2044,6 +2079,11 @@ function updateHostUI() {
   const hostLabel = document.getElementById('hostLabel');
   if (hostLabel) {
     hostLabel.textContent = state.isHost ? '👑 Вы хост' : '👤 Вы гость';
+  }
+  // Прозрачный слой для перехвата кликов — только для хоста
+  const overlay = document.getElementById('player-touch-overlay');
+  if (overlay) {
+    overlay.classList.toggle('active', !!state.isHost);
   }
 }
 
@@ -3003,6 +3043,24 @@ function spawnCompliment() {
 
 // Таймер: раз в 8 минут
 setInterval(spawnCompliment, 480000);
+
+// ═══════════════════════════════════════════════════════════
+// window.raveApp — публичный API для inline onclick в index.html
+// ═══════════════════════════════════════════════════════════
+
+window.raveApp = {
+  togglePlayPause() {
+    if (!state.isHost || state.isSyncing) return;
+    const player = getActivePlayer();
+    if (!player) return;
+
+    if (player.isPaused()) {
+      player.play();
+    } else {
+      player.pause();
+    }
+  },
+};
 
 /* ═══════════════════════════════════════════════════════════
     19. ИНИЦИАЛИЗАЦИЯ

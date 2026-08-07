@@ -85,6 +85,7 @@ function createRoomRecord(roomId, name, hostId) {
     isPlaying: false,
     anchorTime: 0,
     anchorTimestamp: 0,
+    playbackRate: 1.0,
     queue: [],
     viewers: 1,
     users: new Map(),
@@ -131,11 +132,12 @@ function getRoomTime(room) {
  */
 function buildSyncState(room, serverTimestamp) {
   return {
-    serverTime: getRoomTime(room),
+    anchorTime: room.anchorTime,
+    anchorTimestamp: room.anchorTimestamp,
     isPlaying: room.isPlaying,
-    serverTimestamp: serverTimestamp || Date.now(),
     currentUrl: room.currentUrl,
     currentType: room.currentType,
+    playbackRate: room.playbackRate || 1.0,
   };
 }
 
@@ -407,6 +409,7 @@ io.on('connection', (socket) => {
     room.isPlaying = true;
     room.anchorTime = time;
     room.anchorTimestamp = Date.now();
+    room.playbackRate = 1.0;
 
     console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
      io.to(currentId).emit('sync-state', buildSyncState(room));
@@ -428,6 +431,7 @@ io.on('connection', (socket) => {
     room.isPlaying = false;
     room.anchorTime = time;
     room.anchorTimestamp = Date.now();
+    room.playbackRate = 1.0;
 
     console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
     io.to(currentId).emit('sync-state', buildSyncState(room));
@@ -448,6 +452,7 @@ io.on('connection', (socket) => {
 
     room.anchorTime = time;
     room.anchorTimestamp = Date.now();
+    room.playbackRate = 1.0;
 
      console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
      io.to(currentId).emit('sync-state', buildSyncState(room));
@@ -469,13 +474,16 @@ io.on('connection', (socket) => {
       room.isPlaying = true;
       room.anchorTime = time;
       room.anchorTimestamp = now;
+      room.playbackRate = 1.0;
     } else if (action === 'pause') {
       room.isPlaying = false;
       room.anchorTime = time;
       room.anchorTimestamp = now;
+      room.playbackRate = 1.0;
     } else if (action === 'seek') {
       room.anchorTime = time;
       room.anchorTimestamp = now;
+      room.playbackRate = 1.0;
     }
 
      io.to(roomId).emit('sync-state', buildSyncState(room, now));
@@ -498,6 +506,7 @@ io.on('connection', (socket) => {
 
     room.anchorTime = currentTime;
     room.anchorTimestamp = now;
+    room.playbackRate = 1.0;
     if (!isPaused && !room.isPlaying) {
       room.isPlaying = true;
     } else if (isPaused && room.isPlaying) {

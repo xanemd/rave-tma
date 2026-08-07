@@ -282,6 +282,21 @@ input {
   left: 0;
 }
 
+#player-touch-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 10;
+  cursor: pointer;
+  display: none;
+}
+
+#player-touch-overlay.active {
+  display: block;
+}
+
 .player-shell iframe,
 .player-shell video {
   width: 100% !important;
