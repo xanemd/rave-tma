@@ -217,6 +217,12 @@ class RavePlayerEngine {
       hideLoading();
     });
 
+    video.addEventListener('error', (e) => {
+      console.error('[Player] video error:', e);
+      hideLoading();
+      showSnack('❌ Не удалось загрузить видео');
+    });
+
     video.addEventListener('timeupdate', () => {
       this._updateTimeDisplay();
     });
@@ -657,6 +663,7 @@ function initTelegram() {
 
   if (roomFromTelegram && /^[a-zA-Z0-9_-]{1,64}$/.test(roomFromTelegram)) {
     state.roomId = roomFromTelegram;
+    window.currentRoomId = roomFromTelegram;
   }
 
   console.log('[Telegram] initData →', {

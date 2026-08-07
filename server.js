@@ -348,6 +348,7 @@ io.on('connection', (socket) => {
     room.isPlaying = false;
 
     console.log(`🎬 MEDIA  | ${socket.id} | room=${currentId} | ${type} | ${url.slice(0, 60)}`);
+    console.log('📡 SYNC_STATE payload:', JSON.stringify(buildSyncState(room)).slice(0, 200));
 
     io.to(currentId).emit('sync-state', buildSyncState(room));
   });
