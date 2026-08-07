@@ -327,6 +327,23 @@ io.on('connection', (socket) => {
     });
 
   // ── Смена видео (хост) ────────────────────────────────────────
+  const handleVideoChange = (roomId, url, type) => {
+    const room = getRoom(roomId);
+    if (!room) return;
+
+    room.currentUrl = url;
+    room.currentType = type;
+    room.anchorTime = 0;
+    room.anchorTimestamp = Date.now();
+    room.isPlaying = false;
+
+    console.log(`🎬 MEDIA  | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
+    console.log('📡 SYNC_STATE payload:', JSON.stringify(buildSyncState(room)).slice(0, 200));
+
+    io.to(roomId).emit('sync-state', buildSyncState(room));
+    io.to(roomId).emit('video-changed', { currentUrl: url, url });
+  };
+
   socket.on('CHANGE_MEDIA', (data) => {
     const currentId = socket.currentRoomId;
     const room = getRoom(currentId);
@@ -341,16 +358,23 @@ io.on('connection', (socket) => {
     const type = String(data?.mediaType || '').slice(0, 32);
     if (!url) return;
 
-    room.currentUrl = url;
-    room.currentType = type;
-    room.anchorTime = 0;
-    room.anchorTimestamp = Date.now();
-    room.isPlaying = false;
+    handleVideoChange(currentId, url, type);
+  });
 
-    console.log(`🎬 MEDIA  | ${socket.id} | room=${currentId} | ${type} | ${url.slice(0, 60)}`);
-    console.log('📡 SYNC_STATE payload:', JSON.stringify(buildSyncState(room)).slice(0, 200));
+  socket.on('change-video', ({ roomId, url }) => {
+    const targetRoomId = roomId || socket.currentRoomId;
+    const room = getRoom(targetRoomId);
+    if (!room) return;
 
-    io.to(currentId).emit('sync-state', buildSyncState(room));
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может менять видео' });
+      return;
+    }
+
+    const normalizedUrl = String(url || '').slice(0, 2000);
+    if (!normalizedUrl) return;
+
+    handleVideoChange(targetRoomId, normalizedUrl, 'unknown');
   });
 
   // ── Выход из комнаты ────────────────────────────────────────

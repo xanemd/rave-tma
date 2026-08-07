@@ -1014,6 +1014,25 @@ function connectSocket() {
     }
   });
 
+  s.on('video-changed', ({ currentUrl, url }) => {
+    try {
+      const roomUrl = currentUrl || url;
+      if (!roomUrl || roomUrl === state.currentUrl) return;
+
+      showRoomView();
+      state.currentUrl = roomUrl;
+
+      showLoading('Загрузка видео…');
+      isSyncing = true;
+      raveEngine.destroy();
+      raveEngine.load(roomUrl);
+      raveEngine.startProgressTracking();
+      setTimeout(() => { isSyncing = false; }, 1000);
+    } catch (e) {
+      console.error("Ошибка обработки video-changed:", e);
+    }
+  });
+
   // Rave: Server-side Master Clock + Dynamic Playback Rate
   s.on('sync-state', ({ serverTime, isPlaying, serverTimestamp, currentUrl, currentType }) => {
     if (state.isHost) return; // Хост — источник истины
