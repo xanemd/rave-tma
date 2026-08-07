@@ -131,6 +131,18 @@ class RavePlayerEngine {
   }
 
   _loadYouTube(videoId) {
+    this._pendingYTVideoId = videoId;
+
+    if (!window.YT) {
+      // API ещё не загружена — дожидаемся onYouTubeIframeAPIReady
+      showLoading('Загрузка YouTube API…');
+      return;
+    }
+
+    this._createYTPlayer(videoId);
+  }
+
+  _createYTPlayer(videoId) {
     const iframe = document.createElement('iframe');
     iframe.id = 'yt-frame';
     iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&rel=0&playsinline=1&disablekb=1&mute=1`;
@@ -148,6 +160,7 @@ class RavePlayerEngine {
       events: {
         onReady: () => {
           this.isReady = true;
+          this._pendingYTVideoId = null;
           this.duration = this.instance.getDuration();
           this._updateTimeDisplay();
           hideLoading();
@@ -397,22 +410,34 @@ window.raveEngine = new RavePlayerEngine('player-render-layer');
 function loadYouTubeAPI() {
   if (state.ytApiLoaded || window.YT) {
     state.ytApiLoaded = true;
+    // Если плеер уже создан, а API пришло позже — создаём YT-player
+    if (window.raveEngine && window.raveEngine._pendingYTVideoId) {
+      const id = window.raveEngine._pendingYTVideoId;
+      window.raveEngine._createYTPlayer(id);
+    }
     return;
   }
 
-  (function () {
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-  })();
-}
+  window.onYouTubeIframeAPIReady = function () {
+    console.log('[YouTube] IFrame API готов');
+    state.ytReady = true;
+    state.ytApiLoaded = true;
 
-window.onYouTubeIframeAPIReady = function () {
-  console.log('[YouTube] IFrame API готов');
-  state.ytReady = true;
-  state.ytApiLoaded = true;
-};
+    if (window.raveEngine && window.raveEngine._pendingYTVideoId) {
+      const id = window.raveEngine._pendingYTVideoId;
+      window.raveEngine._createYTPlayer(id);
+    }
+  };
+
+  const tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  tag.onerror = () => {
+    console.error('[YouTube] API не загрузился');
+    hideLoading();
+  };
+  const firstScriptTag = document.getElementsByTagName('script')[0];
+  firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
+}
 
 // ═══════════════════════════════════════════════════════════
 // УТИЛИТЫ / СНИППЕТЫ DOM
@@ -831,8 +856,40 @@ function connectSocket() {
   });
 
   // Rave: Server-side Master Clock + Dynamic Playback Rate
-  s.on('sync-state', ({ serverTime, isPlaying, serverTimestamp }) => {
+  s.on('sync-state', ({ serverTime, isPlaying, serverTimestamp, currentUrl, currentType }) => {
     if (state.isHost) return; // Хост — источник истины
+
+    // Если пришел новый URL — загружаем видео
+    if (currentUrl && currentUrl !== state.currentUrl) {
+      state.currentUrl = currentUrl;
+      state.currentType = currentType || state.currentType;
+
+      if (els.nowPlayingTitle) {
+        els.nowPlayingTitle.textContent = formatTitle(currentUrl);
+      }
+
+      if (currentType === 'youtube' || extractYouTubeId(currentUrl)) {
+        loadYouTubeAPI();
+      }
+
+      isSyncing = true;
+      raveEngine.destroy();
+      raveEngine.load(currentUrl);
+      raveEngine.startProgressTracking();
+
+      setTimeout(() => {
+        if (!raveEngine.isReady) return;
+        isSyncing = true;
+        const targetTime = serverTime + (Date.now() - serverTimestamp) / 2000;
+        raveEngine.seekTo(targetTime);
+        if (isPlaying && !raveEngine.isBuffering()) {
+          raveEngine.play();
+        }
+        setTimeout(() => { isSyncing = false; }, 400);
+      }, 800);
+
+      return;
+    }
 
     const player = raveEngine;
     if (!player || !player.isReady) return;
@@ -1709,6 +1766,7 @@ function bindUI() {
   initTelegram();
   bindUI();
   connectSocket();
+  showPlaceholder();
 
   if (els.roomBadge) els.roomBadge.textContent = state.roomId;
   if (els.roomBadge) els.roomBadge.title = 'Комната: ' + state.roomId;
