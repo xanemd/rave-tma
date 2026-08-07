@@ -2154,7 +2154,7 @@ function addChatMessage(msg, mine = false) {
   el.className = 'message-bubble ' + (isMine ? 'outgoing' : 'incoming');
   el.dataset.messageId = msg.id || '';
 
-  const time = formatTime(msg.time);
+  const time = formatTime(typeof msg.time === 'number' ? msg.time : Date.now() / 1000);
   const sender = escapeHtml(msg.sender || 'Гость');
 
   // Цитата (reply) — FIX 3: как в Telegram
