@@ -116,18 +116,92 @@ class RavePlayerEngine {
   }
 
   load(url) {
-    this.isReady = false;
-    this.pendingPlay = false;
-    this.duration = 0;
-    this.container.innerHTML = '';
-    const ytId = this.extractYTId(url);
+    console.log("RavePlayerEngine: Загрузка URL:", url);
 
-    if (ytId) {
-      this.type = 'yt';
-      this._loadYouTube(ytId);
-    } else {
-      this.type = 'native';
-      this._loadNative(url);
+    const loaderEl = document.querySelector('.loading-spinner, #video-loader, .video-loader-overlay');
+    if (loaderEl) loaderEl.style.display = 'none';
+
+    if (!url || typeof url !== 'string') {
+      console.error("Невалидный URL видео:", url);
+      return;
+    }
+
+    try {
+      this.isReady = false;
+      this.pendingPlay = false;
+      this.duration = 0;
+      this.container.innerHTML = '';
+      const ytId = this.extractYTId(url);
+
+      if (ytId) {
+        this.type = 'yt';
+
+        const initYTPlayer = () => {
+          const iframe = document.createElement('iframe');
+          iframe.id = 'yt-frame';
+          iframe.src = `https://www.youtube.com/embed/${ytId}?enablejsapi=1&controls=0&rel=0&playsinline=1&disablekb=1&autoplay=1`;
+          iframe.allow = "autoplay; encrypted-media";
+          this.container.appendChild(iframe);
+
+          const readyTimeout = setTimeout(() => {
+            if (!this.isReady) {
+              this.isReady = true;
+              if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
+            }
+          }, 4000);
+
+          this.instance = new YT.Player('yt-frame', {
+            events: {
+              'onReady': () => {
+                clearTimeout(readyTimeout);
+                this.isReady = true;
+                if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
+              },
+              'onError': (err) => {
+                console.error("YouTube Player Error:", err);
+                clearTimeout(readyTimeout);
+                this.isReady = true;
+              },
+              'onStateChange': (e) => {
+              if (window.raveEngine && typeof window.raveEngine._handleYTStateChange === 'function') {
+                window.raveEngine._handleYTStateChange(e);
+              }
+            },
+            }
+          });
+        };
+
+        if (window.YT) {
+          initYTPlayer();
+        } else {
+          showLoading('Загрузка YouTube API…');
+          this._pendingYTVideoId = ytId;
+          loadYouTubeAPI();
+        }
+      } else {
+        this.type = 'native';
+        const video = document.createElement('video');
+        video.src = url;
+        video.playsInline = true;
+        video.controls = false;
+        video.crossOrigin = 'anonymous';
+        video.preload = 'auto';
+        this.container.appendChild(video);
+        this.instance = video;
+
+        video.addEventListener('loadeddata', () => {
+          this.isReady = true;
+          if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
+        });
+
+        video.addEventListener('error', (e) => {
+          console.error("Native Video Error:", e);
+          this.isReady = true;
+        });
+      }
+    } catch (error) {
+      console.error("Критическая ошибка внутри RavePlayerEngine.load:", error);
+      this.isReady = true;
     }
   }
 
@@ -152,7 +226,7 @@ class RavePlayerEngine {
   _createYTPlayer(videoId) {
     const iframe = document.createElement('iframe');
     iframe.id = 'yt-frame';
-    iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&rel=0&playsinline=1&disablekb=1&mute=1`;
+    iframe.src = `https://www.youtube.com/embed/${videoId}?enablejsapi=1&controls=0&rel=0&playsinline=1&disablekb=1&autoplay=1`;
     iframe.allow = "autoplay; encrypted-media";
     this.container.appendChild(iframe);
 
@@ -184,6 +258,9 @@ class RavePlayerEngine {
         },
         onStateChange: (e) => {
           this._handleYTStateChange(e);
+          if (window.raveApp && window.raveApp.onPlayerStateChange) {
+            window.raveApp.onPlayerStateChange(e);
+          }
         },
         onError: (e) => {
           clearTimeout(readyTimeout);
@@ -463,6 +540,7 @@ function loadYouTubeAPI() {
     // Если плеер уже создан, а API пришло позже — создаём YT-player
     if (window.raveEngine && window.raveEngine._pendingYTVideoId) {
       const id = window.raveEngine._pendingYTVideoId;
+      window.raveEngine._pendingYTVideoId = null;
       window.raveEngine._createYTPlayer(id);
     }
     return;
@@ -475,6 +553,7 @@ function loadYouTubeAPI() {
 
     if (window.raveEngine && window.raveEngine._pendingYTVideoId) {
       const id = window.raveEngine._pendingYTVideoId;
+      window.raveEngine._pendingYTVideoId = null;
       window.raveEngine._createYTPlayer(id);
     }
   };
@@ -839,11 +918,20 @@ function connectSocket() {
   });
 
   s.on('init-room-state', (data) => {
-    console.log('[Socket] init-room-state ←', data);
+    try {
+      console.log('[Socket] init-room-state ←', data);
 
-    showRoomView();
+      const welcomeScreen = document.getElementById('welcome-screen');
+      const roomViewScreen = document.getElementById('room-view-screen');
 
-    const roomUrl = data.currentUrl;
+      if (data && data.currentUrl) {
+        if (welcomeScreen) welcomeScreen.style.display = 'none';
+        if (roomViewScreen) roomViewScreen.style.display = 'block';
+      }
+
+      showRoomView();
+
+      const roomUrl = data.currentUrl;
     const roomTime = getServerAuthoritativePosition(data);
     const roomPlaying = !!data.isPlaying;
 
@@ -915,6 +1003,9 @@ function connectSocket() {
     if (Array.isArray(data.queue)) {
       state.queue = data.queue;
       renderQueue();
+    }
+    } catch (e) {
+      console.error("Ошибка инициализации комнаты у гостя:", e);
     }
   });
 
@@ -1510,76 +1601,68 @@ function addChatMessage(msg, mine = false) {
   `;
 
    els.chatMessages.appendChild(el);
-   attachMessageTouchHandlers(el);
+   attachMessageEvents(el);
    scrollChatToBottom();
 }
 
-function attachMessageTouchHandlers(el) {
-  if (!el) return;
+function attachMessageEvents(messageEl) {
+  if (!messageEl) return;
 
-  let startX = 0;
-  let currentX = 0;
   let touchTimer = null;
 
-  el.addEventListener('touchstart', (e) => {
-    try {
-      startX = e.touches[0].clientX;
-      currentX = startX;
-
-      touchTimer = setTimeout(() => {
-        showReactionsMenu(el, e);
-      }, 500);
-    } catch (err) {
-      console.error('touchstart error:', err);
-    }
+  messageEl.addEventListener('touchstart', (e) => {
+    touchTimer = setTimeout(() => {
+      openReactionsQuickPanel(messageEl);
+    }, 400);
   }, { passive: true });
 
-  el.addEventListener('touchmove', (e) => {
-    try {
-      if (touchTimer) clearTimeout(touchTimer);
-      if (!startX) return;
-
-      currentX = e.touches[0].clientX;
-      const diffX = currentX - startX;
-
-      if (diffX > 50 && diffX < 150) {
-        el.style.transform = `translateX(${diffX}px)`;
-      }
-    } catch (err) {
-      console.error('touchmove error:', err);
-    }
-  }, { passive: true });
-
-  el.addEventListener('touchend', () => {
-    try {
-      if (touchTimer) clearTimeout(touchTimer);
-
-      const diffX = currentX - startX;
-      el.style.transform = '';
-
-      if (diffX > 80) {
-        triggerReplyToMessage(el);
-      }
-
-      startX = 0;
-      currentX = 0;
-    } catch (err) {
-      console.error('touchend error:', err);
-    }
-  });
+  messageEl.addEventListener('touchend', () => { if (touchTimer) clearTimeout(touchTimer); });
+  messageEl.addEventListener('touchmove', () => { if (touchTimer) clearTimeout(touchTimer); });
+  messageEl.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
 }
 
-function showReactionsMenu(el, e) {
-  try {
-    const msgId = el.dataset.messageId;
-    if (!msgId) return;
+function openReactionsQuickPanel(msgEl) {
+  document.querySelectorAll('.reactions-popover').forEach(el => el.remove());
 
-    const emoji = prompt('Введите реакцию (например, ❤️, 👍, 😂):');
-    if (emoji) {
-      window.raveApp.sendReaction(msgId, emoji);
-    }
-  } catch (err) {
-    console.error('showReactionsMenu error:', err);
+  const popover = document.createElement('div');
+  popover.className = 'reactions-popover';
+
+  const quickEmojis = ['👍', '❤️', '😂', '😮', '😢'];
+
+  quickEmojis.forEach(emoji => {
+    const btn = document.createElement('button');
+    btn.className = 'reaction-btn';
+    btn.innerText = emoji;
+    btn.onclick = () => {
+      const msgId = msgEl.dataset.messageId;
+      if (msgId) {
+        window.raveApp.sendReaction(msgId, emoji);
+      }
+      popover.remove();
+    };
+    popover.appendChild(btn);
+  });
+
+  const moreBtn = document.createElement('button');
+  moreBtn.className = 'reaction-more-btn';
+  moreBtn.innerHTML = '➔';
+  moreBtn.onclick = () => {
+    popover.remove();
+    openFullEmojiPicker(msgEl);
+  };
+  popover.appendChild(moreBtn);
+
+  msgEl.appendChild(popover);
+}
+
+function openFullEmojiPicker(msgEl) {
+  const fullSet = ['👍','❤️','😂','😮','😢','👏','🔥','🤔','👎','🎉','😍','😭','👀','🙏','💯'];
+  const msgId = msgEl.dataset.messageId;
+  if (!msgId) return;
+
+  const emoji = prompt('Введите эмодзи реакцию (например, 👍):', fullSet[0]);
+  if (emoji) {
+    window.raveApp.sendReaction(msgId, emoji);
   }
 }
 
