@@ -2910,7 +2910,7 @@ function bindUI() {
       // Это чинит баг, когда socket висел в двух комнатах и комната не появлялась в списке.
       const ensureSocket = () => {
         if (state.socket && state.connected) {
-          state.socket.emit('create-room', { name: 'НАША СПАЛЬНЯ 😉' }, handleCreated);
+          state.socket.emit('create-room', { name: 'НАША СПАЛЬНЯ 😉', nickname: state.userName }, handleCreated);
         } else {
           connectSocket();
           setTimeout(ensureSocket, 500);
