@@ -291,6 +291,7 @@ input {
   z-index: 10;
   cursor: pointer;
   display: none;
+  pointer-events: none;
 }
 
 #player-touch-overlay.active {

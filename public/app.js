@@ -58,6 +58,7 @@ const state = {
   currentPlaybackRate: 1.0,
   lastSync: null,
   clientSyncInterval: null,
+  soundMuted: localStorage.getItem('rave_sound_muted') !== '0',
 
   peers: [],
   viewers: 1,
@@ -631,6 +632,7 @@ function loadYouTubeVideo(videoId, autoplay = true) {
           state.ytPlayerReady = true;
           if (state.loadingSafetyTimer) { clearTimeout(state.loadingSafetyTimer); state.loadingSafetyTimer = null; }
           hideLoading();
+          tryUnmutePlayer();
           if (autoplay) {
             try { event.target.playVideo(); } catch (e) { /* ignore */ }
 
@@ -788,6 +790,7 @@ function loadNativeOrHls(url, autoplay = true) {
   video.addEventListener('loadedmetadata', () => {
     clearTimeout(fallbackTimer);
     hideLoading();
+    tryUnmutePlayer();
   }, { once: true });
 
   video.addEventListener('error', fallbackOnError, { once: true });
@@ -809,6 +812,7 @@ function loadNativeOrHls(url, autoplay = true) {
       window.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
         clearTimeout(fallbackTimer);
         hideLoading();
+        tryUnmutePlayer();
         setStatus('📡 HLS поток готов');
         if (autoplay) {
           video.play().catch(() => handleAutoplayBlocked('HLS'));
@@ -838,6 +842,7 @@ function loadNativeOrHls(url, autoplay = true) {
       video.addEventListener('loadedmetadata', () => {
         clearTimeout(fallbackTimer);
         hideLoading();
+        tryUnmutePlayer();
         setStatus('📡 HLS поток готов (нативно)');
         if (autoplay) video.play().catch(() => handleAutoplayBlocked('HLS'));
       }, { once: true });
@@ -850,6 +855,7 @@ function loadNativeOrHls(url, autoplay = true) {
   } else {
     video.src = url;
     video.load();
+    tryUnmutePlayer();
     if (autoplay) {
       video.play().catch(() => handleAutoplayBlocked('видео'));
     }
@@ -1209,19 +1215,18 @@ function connectSocket() {
 
     if (absDiff > 2.5) {
       player.seekTo(serverTime);
-      player.setPlaybackRate(1.0);
+      setSupportedPlaybackRate(player, 1.0);
       state.currentPlaybackRate = 1.0;
+      console.log('[SYNC] Seek to serverTime due to large diff:', serverTime.toFixed(2), 'Diff:', diff.toFixed(2));
     } else if (absDiff > 0.5) {
-      if (diff > 0) {
-        player.setPlaybackRate(0.95);
-        state.currentPlaybackRate = 0.95;
-      } else {
-        player.setPlaybackRate(1.05);
-        state.currentPlaybackRate = 1.05;
-      }
+      const targetRate = diff > 0 ? 0.95 : 1.05;
+      setSupportedPlaybackRate(player, targetRate);
+      state.currentPlaybackRate = targetRate;
+      console.log('[SYNC] Adjusting rate to:', targetRate, 'Diff:', diff.toFixed(2), 'absDiff:', absDiff.toFixed(2));
     } else {
-      player.setPlaybackRate(1.0);
+      setSupportedPlaybackRate(player, 1.0);
       state.currentPlaybackRate = 1.0;
+      console.log('[SYNC] Rate normalized to 1.0, Diff:', diff.toFixed(2));
     }
 
     setTimeout(() => { state.isSyncing = false; }, 400);
@@ -1783,6 +1788,28 @@ function getActivePlayer() {
   return null;
 }
 
+function setSupportedPlaybackRate(player, targetRate) {
+  if (!player || typeof player.setPlaybackRate !== 'function') return;
+  try {
+    const availableRates = [];
+    if (state.ytPlayer && typeof state.ytPlayer.getAvailablePlaybackRates === 'function') {
+      const rates = state.ytPlayer.getAvailablePlaybackRates();
+      if (Array.isArray(rates)) availableRates.push(...rates);
+    }
+    if (availableRates.length > 0) {
+      const closest = availableRates.reduce((prev, curr) =>
+        Math.abs(curr - targetRate) < Math.abs(prev - targetRate) ? curr : prev
+      );
+      console.log('[SYNC] YouTube available rates:', availableRates, 'closest to', targetRate, '=', closest);
+      player.setPlaybackRate(closest);
+    } else {
+      player.setPlaybackRate(targetRate);
+    }
+  } catch (e) {
+    player.setPlaybackRate(targetRate);
+  }
+}
+
 function getPlayerInterface() {
   if (state.ytPlayer && state.ytPlayerReady) {
     return {
@@ -2062,6 +2089,27 @@ function showSnack(text, ms = 2500) {
 function handleAutoplayBlocked(sourceName) {
   console.warn(`[Autoplay] Блокировка автовоспроизведения: ${sourceName}`);
   showSnack(`🔇 Нажмите «Play», чтобы начать (${sourceName})`);
+}
+
+function tryUnmutePlayer() {
+  if (state.soundMuted) return;
+  const player = getActivePlayer();
+  if (!player) return;
+  try {
+    if (player.unMute) {
+      player.unMute();
+    }
+    if (player.setVolume) {
+      player.setVolume(100);
+    }
+  } catch (e) { /* ignore */ }
+  const video = els.nativeVideo;
+  if (video) {
+    try {
+      video.muted = false;
+      video.volume = 1.0;
+    } catch (e) { /* ignore */ }
+  }
 }
 
 function updatePeersCount() {
@@ -2912,6 +2960,24 @@ function bindUI() {
     });
   }
 
+  // Клик по плееру: хост может переключать play/pause кликом по области видео
+  const playerContainer = document.getElementById('player-container');
+  if (playerContainer) {
+    playerContainer.addEventListener('click', (event) => {
+      if (!state.isHost) return;
+      if (event.target.closest('video, iframe, button, .player-shell')) return;
+      const player = getActivePlayer();
+      if (!player) return;
+      if (player.isPaused()) {
+        player.play();
+        onUserPlay();
+      } else {
+        player.pause();
+        onUserPause();
+      }
+    });
+  }
+
   // Защита от мобильного сабмита формы Enter'ом: теперь это просто div,
   // но оставляем preventDefault на случай системной отправки.
   els.chatSendBtn.addEventListener('click', sendChatMessage);
@@ -3085,6 +3151,17 @@ window.raveApp = {
 
   // Подключаемся к Socket.io
   connectSocket();
+
+  // Глобальный once-клик для разблокировки звука
+  const unmuteHandler = () => {
+    state.soundMuted = false;
+    localStorage.setItem('rave_sound_muted', '0');
+    tryUnmutePlayer();
+    document.removeEventListener('click', unmuteHandler);
+    document.removeEventListener('touchstart', unmuteHandler);
+  };
+  document.addEventListener('click', unmuteHandler, { once: true });
+  document.addEventListener('touchstart', unmuteHandler, { once: true });
 
   // Если открылись по Telegram deep link — сразу подключаемся к комнате
   const startParam = (window.Telegram?.WebApp?.initDataUnsafe || {}).start_param;
