@@ -2201,11 +2201,6 @@ function updateHostUI() {
   if (els.changeMediaBtn) {
     els.changeMediaBtn.style.display = state.isHost ? '' : 'none';
   }
-  // Обновляем подпись в панели
-  const hostLabel = document.getElementById('hostLabel');
-  if (hostLabel) {
-    hostLabel.textContent = state.isHost ? '👑 Вы хост' : '👤 Вы гость';
-  }
   // Прозрачный слой для перехвата кликов — только для хоста
   const overlay = document.getElementById('player-touch-overlay');
   if (overlay) {
@@ -2234,14 +2229,12 @@ function renderQueue() {
 function renderDrawerPeers() {
   if (!els.drawerPeers) return;
 
-  const myId = state.socket?.id;
   const peersHtml = state.roomUsers.map((u) => {
-    const isMe = u.socketId === myId;
-    const name = escapeHtml(isMe ? state.userName : (u.nickname || 'Гость'));
+    const name = escapeHtml(u.nickname || 'Гость');
     if (u.isHost) {
-      return `<div class="drawer-peer">👑 ${isMe ? 'Вы (' + name + ')' : name}</div>`;
+      return `<div class="drawer-peer">👑 ${name}</div>`;
     }
-    return `<div class="drawer-peer">💕 ${isMe ? 'Вы (' + name + ')' : name}</div>`;
+    return `<div class="drawer-peer">💕 ${name}</div>`;
   }).join('');
 
   els.drawerPeers.innerHTML = peersHtml || '<div class="drawer-peer">Нет участников</div>';
