@@ -184,19 +184,23 @@ class RavePlayerEngine {
         video.src = url;
         video.playsInline = true;
         video.controls = false;
-        video.crossOrigin = 'anonymous';
         video.preload = 'auto';
+        video.muted = true;
         this.container.appendChild(video);
         this.instance = video;
 
-        video.addEventListener('loadeddata', () => {
-          this.isReady = true;
+        const hideLoaderAndMarkReady = () => {
+          if (!this.isReady) this.isReady = true;
+          hideLoading();
           if (this.pendingPlay) { this.play(); this.pendingPlay = false; }
-        });
+        };
 
+        video.addEventListener('loadeddata', hideLoaderAndMarkReady);
+        video.addEventListener('canplay', hideLoaderAndMarkReady);
+        video.addEventListener('canplaythrough', hideLoaderAndMarkReady);
         video.addEventListener('error', (e) => {
           console.error("Native Video Error:", e);
-          this.isReady = true;
+          hideLoaderAndMarkReady();
         });
       }
     } catch (error) {
@@ -454,6 +458,7 @@ class RavePlayerEngine {
     }
     this.instance = null;
     this.isReady = false;
+    this.pendingPlay = false;
     this.type = null;
     this.duration = 0;
     this.container.innerHTML = '';
