@@ -790,7 +790,7 @@ io.on('connection', (socket) => {
    });
  }, 3000);
 
-// ── Фоновый тикер: комплименты каждые 8 минут ─────────────────
+// ── Фоновый тикер: комплименты каждые 10 минут ────────────────
 const COMPLIMENTS = [
   'Ксюня, ты самая лучшая! 💖',
   'Ксюня, ты самая красивая! ✨',
@@ -843,12 +843,12 @@ const COMPLIMENTS = [
   'Люблю тебя до Луны и обратно! 🌌❤️',
 ];
 
- setInterval(() => {
-   rooms.forEach((room, roomId) => {
-     const randomIndex = Math.floor(Math.random() * COMPLIMENTS.length);
-     io.to(roomId).emit('spawn-compliment', { text: COMPLIMENTS[randomIndex] });
-   });
- }, 480000);
+setInterval(() => {
+  rooms.forEach((room, roomId) => {
+    const randomIndex = Math.floor(Math.random() * COMPLIMENTS.length);
+    io.to(roomId).emit('spawn-compliment', { text: COMPLIMENTS[randomIndex] });
+  });
+}, 600000);
 
 // ─────────────────────────────────────────────────────────────
 // ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
