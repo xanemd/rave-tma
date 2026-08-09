@@ -1458,6 +1458,9 @@ function connectSocket() {
 
     const playerPaused = player.isPaused();
     if (isPlaying && playerPaused && !player.isBuffering()) {
+      if (absDiff > SYNC_THRESHOLD_SECONDS) {
+        player.seekTo(serverTime);
+      }
       player.play();
       setTimeout(() => { state.isSyncing = false; }, 400);
       return;
@@ -1834,6 +1837,7 @@ function handleRemotePlay(data) {
 function handleRemotePause(data) {
   state.isPlaying = false;
   const type = data.mediaType || state.currentType;
+  const targetTime = getAdjustedRemoteTime(data);
 
   if (data.url && data.url !== state.currentUrl) {
     handleRemoteMedia({ ...data, autoplay: false });
@@ -1843,19 +1847,37 @@ function handleRemotePause(data) {
     switch (type) {
       case SOURCE_TYPES.YOUTUBE: {
         const player = getPlayerInterface();
-        if (player) player.pause();
+        if (!player) return;
+        if (targetTime > 0 && Math.abs(player.getCurrentTime() - targetTime) > SYNC_THRESHOLD_SECONDS) {
+          player.seekTo(targetTime);
+        }
+        player.pause();
         break;
       }
 
       case SOURCE_TYPES.NATIVE:
-      case SOURCE_TYPES.HLS:
-        els.nativeVideo.pause();
+      case SOURCE_TYPES.HLS: {
+        const video = els.nativeVideo;
+        if (targetTime > 0) {
+          if (video.readyState >= 2) {
+            video.currentTime = targetTime;
+          } else {
+            video.addEventListener('loadedmetadata', () => {
+              try { video.currentTime = targetTime; } catch (e) { /* ignore */ }
+            }, { once: true });
+          }
+        }
+        video.pause();
         break;
+      }
 
       case SOURCE_TYPES.VIMEO: {
         const iframe = els.embedFrame;
         const win = iframe.contentWindow;
         if (win) {
+          if (targetTime > 0) {
+            win.postMessage({ method: 'setCurrentTime', value: targetTime }, '*');
+          }
           win.postMessage({ method: 'pause' }, '*');
         }
         break;

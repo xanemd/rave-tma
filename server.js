@@ -509,7 +509,7 @@ io.on('connection', (socket) => {
     room.playbackRate = 1.0;
 
     console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-     socket.to(currentId).emit('sync_state', buildSyncState(room));
+     io.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
    socket.on('PAUSE', (data) => {
@@ -531,7 +531,7 @@ io.on('connection', (socket) => {
     room.playbackRate = 1.0;
 
     console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-    socket.to(currentId).emit('sync_state', buildSyncState(room));
+    io.to(currentId).emit('sync_state', buildSyncState(room));
   });
 
   // ── Buffering synchronization ──────────────────────────────────
@@ -584,7 +584,7 @@ io.on('connection', (socket) => {
     room.playbackRate = 1.0;
 
      console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-     socket.to(currentId).emit('sync_state', buildSyncState(room));
+     io.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
    // ── Динамическая синхронизация (Rave: Server-side Master Clock) ───
@@ -632,7 +632,7 @@ io.on('connection', (socket) => {
     room.isPlaying = !room.isPlaying;
     room.lastUpdated = Date.now();
 
-    socket.to(currentId).emit('sync_state', buildSyncState(room));
+    io.to(currentId).emit('sync_state', buildSyncState(room));
   });
 
   // ── Периодическая синхронизация времени от хоста ─────────────
@@ -715,7 +715,7 @@ io.on('connection', (socket) => {
 
     console.log(`⏭ NEXT   | ${socket.id} | room=${currentId} | ${next.url.slice(0, 50)}`);
 
-      socket.to(currentId).emit('sync_state', buildSyncState(room));
+      io.to(currentId).emit('sync_state', buildSyncState(room));
       io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
   });
 
