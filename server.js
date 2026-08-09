@@ -556,10 +556,10 @@ io.on('connection', (socket) => {
 
     // Remove from buffering set
     if (room.buffering) {
+      const wasBuffering = room.buffering.size > 0;
       room.buffering.delete(socket.id);
 
-      // If no one is buffering anymore, resume all
-      if (room.buffering.size === 0) {
+      if (wasBuffering && room.buffering.size === 0) {
         io.to(currentId).emit('resume_after_buffering');
         console.log(`▶  RESUME  | room=${currentId} (all clients ready)`);
       }
