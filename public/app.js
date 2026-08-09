@@ -1006,7 +1006,11 @@ function loadVideoStream(streamUrl) {
       hideLoading();
       tryUnmutePlayer();
       setStatus('📡 HLS поток готов');
-      video.play().catch(() => handleAutoplayBlocked('HLS'));
+      // Видео загружено, но на паузе в начале — ждем явного Play
+      const video = els.nativeVideo;
+      video.currentTime = 0;
+      video.pause();
+      // Не вызываем video.play() — ждем явного нажатия Play
 
       // Buffering handling
       video.addEventListener('waiting', () => {
@@ -1047,30 +1051,35 @@ function loadVideoStream(streamUrl) {
       hideLoading();
       tryUnmutePlayer();
       setStatus('📡 HLS поток готов (нативно)');
-      video.play().catch(() => handleAutoplayBlocked('HLS'));
+      // Видео загружено, но на паузе в начале
+      video.currentTime = 0;
+      video.pause();
+      // Не вызываем video.play() — ждем явного нажатия Play
+
+      // Buffering handling for native HLS
+      video.addEventListener('waiting', () => {
+        if (state.socket && state.connected) {
+          state.socket.emit('player_buffering');
+        }
+      });
+
+      video.addEventListener('canplaythrough', () => {
+        if (state.socket && state.connected) {
+          state.socket.emit('player_ready');
+        }
+      });
     }, { once: true });
-
-    // Buffering handling for native HLS
-    video.addEventListener('waiting', () => {
-      if (state.socket && state.connected) {
-        state.socket.emit('player_buffering');
-      }
-    });
-
-    video.addEventListener('canplaythrough', () => {
-      if (state.socket && state.connected) {
-        state.socket.emit('player_ready');
-      }
-    });
-  } else {
     video.src = streamUrl;
     video.load();
     tryUnmutePlayer();
-    video.addEventListener('loadedmetadata', () => {
+video.addEventListener('loadedmetadata', () => {
       clearTimeout(fallbackTimer);
       hideLoading();
+      // Видео загружено, но на паузе в начале
+      video.currentTime = 0;
+      video.pause();
     }, { once: true });
-    video.play().catch(() => handleAutoplayBlocked('видео'));
+    // Не вызываем video.play() — ждем явного нажатия Play
 
     // Buffering handling for native MP4
     video.addEventListener('waiting', () => {
