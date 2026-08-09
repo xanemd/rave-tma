@@ -764,13 +764,13 @@ function getYouTubeCurrentTime() {
    6. HTML5 VIDEO / HLS ПЛЕЕР
    ═══════════════════════════════════════════════════════════ */
 
-function loadNativeOrHls(url, autoplay = false) {
+function loadNativeOrHls(url, autoplay = false, startTime = 0) {
   const video = els.nativeVideo;
   video.setAttribute('data-raw-url', url);
   showOnlyShell('video');
 
   try { video.pause(); } catch (e) { /* ignore */ }
-  try { video.currentTime = 0; } catch (e) { /* ignore */ }
+  try { video.currentTime = startTime; } catch (e) { /* ignore */ }
 
   // ── Fallback: если видео не начало грузиться за 8с или произошла ошибка —
   //    монтируем «голый» <video> с контролами через renderPlayer.
@@ -967,7 +967,8 @@ async function resolveStreamUrl(rawUrl, autoplay, emit, incoming) {
     }
 
     hideLoading();
-    loadMedia(streamUrl, { emit, autoplay, incoming });
+    const time = getAdjustedRemoteTime({ ...data, mediaType: type, serverTime: undefined });
+    loadMedia(streamUrl, { emit, autoplay, incoming, startTime: time });
   } catch (e) {
     console.error('[Stream] Ошибка получения потока:', e);
     hideLoading();
@@ -976,7 +977,7 @@ async function resolveStreamUrl(rawUrl, autoplay, emit, incoming) {
   }
 }
 
-function loadVideoStream(streamUrl) {
+function loadVideoStream(streamUrl, startTime = 0) {
   if (!streamUrl) return;
 
   const lower = String(streamUrl).toLowerCase();
@@ -1008,7 +1009,7 @@ function loadVideoStream(streamUrl) {
       setStatus('📡 HLS поток готов');
       // Видео загружено, но на паузе в начале — ждем явного Play
       const video = els.nativeVideo;
-      video.currentTime = 0;
+      video.currentTime = startTime;
       video.pause();
       // Не вызываем video.play() — ждем явного нажатия Play
 
@@ -1052,7 +1053,7 @@ function loadVideoStream(streamUrl) {
       tryUnmutePlayer();
       setStatus('📡 HLS поток готов (нативно)');
       // Видео загружено, но на паузе в начале
-      video.currentTime = 0;
+      video.currentTime = startTime;
       video.pause();
       // Не вызываем video.play() — ждем явного нажатия Play
 
@@ -1101,7 +1102,7 @@ video.addEventListener('loadedmetadata', () => {
     ═══════════════════════════════════════════════════════════ */
 
 function loadMedia(rawUrl, opts = {}) {
-  const { emit = true, autoplay = false, incoming = false } = opts;
+  const { emit = true, autoplay = false, incoming = false, startTime = 0 } = opts;
 
   const parsed = parseUrl(rawUrl);
 
@@ -1137,7 +1138,7 @@ function loadMedia(rawUrl, opts = {}) {
 
     case SOURCE_TYPES.HLS:
     case SOURCE_TYPES.NATIVE:
-      loadNativeOrHls(parsed.payload.url, autoplay);
+      loadNativeOrHls(parsed.payload.url, autoplay, startTime);
       break;
 
     case SOURCE_TYPES.IFRAME:
@@ -1190,14 +1191,14 @@ function formatTitle(url) {
   }
 }
 
-function ensureCorrectPlayer(videoUrl, autoplay = true) {
+function ensureCorrectPlayer(videoUrl, autoplay = true, startTime = 0) {
   if (!videoUrl) return;
   const parsed = parseUrl(videoUrl);
   if (parsed.type === SOURCE_TYPES.UNKNOWN) {
     console.warn('[Player] Не удалось определить тип медиа:', videoUrl);
     return;
   }
-  loadMedia(videoUrl, { emit: false, autoplay, incoming: true });
+  loadMedia(videoUrl, { emit: false, autoplay, incoming: true, startTime });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -1961,7 +1962,7 @@ function handleRemoteMedia(data) {
   // Если URL тот же, но плеер ещё не готов — перезагружаем медиа и ставим синхронизацию на готовность
   if (sameUrl && !isPlayerReady(type)) {
     console.log('[Sync] Тот же URL, но плеер не готов — повторно загружаем медиа', type, url);
-    ensureCorrectPlayer(url, autoplay);
+    ensureCorrectPlayer(url, autoplay, time);
     scheduleRemoteSync();
     return;
   }
@@ -1981,7 +1982,7 @@ function handleRemoteMedia(data) {
 
   console.log('[Sync] Загружаем удалённое медиа:', mediaType, url);
 
-  ensureCorrectPlayer(url, autoplay);
+  ensureCorrectPlayer(url, autoplay, time);
 
   scheduleRemoteSync();
 }
