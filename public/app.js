@@ -804,6 +804,19 @@ function loadNativeOrHls(url, autoplay = false) {
     }
   }, { once: true });
 
+  // Buffering handling
+  video.addEventListener('waiting', () => {
+    if (state.socket && state.connected) {
+      state.socket.emit('player_buffering');
+    }
+  });
+
+  video.addEventListener('canplaythrough', () => {
+    if (state.socket && state.connected) {
+      state.socket.emit('player_ready');
+    }
+  });
+
   video.addEventListener('error', fallbackOnError, { once: true });
 
   if (url.toLowerCase().endsWith('.m3u8')) {
@@ -863,6 +876,19 @@ function loadNativeOrHls(url, autoplay = false) {
         }
         if (autoplay) video.play().catch(() => handleAutoplayBlocked('HLS'));
       }, { once: true });
+
+      // Buffering handling for native HLS
+      video.addEventListener('waiting', () => {
+        if (state.socket && state.connected) {
+          state.socket.emit('player_buffering');
+        }
+      });
+
+      video.addEventListener('canplaythrough', () => {
+        if (state.socket && state.connected) {
+          state.socket.emit('player_ready');
+        }
+      });
     } else {
       console.error('[HLS] HLS.js недоступен');
       setStatus('⚠️ HLS не поддерживается на этом устройстве');
@@ -881,6 +907,19 @@ function loadNativeOrHls(url, autoplay = false) {
     if (autoplay) {
       video.play().catch(() => handleAutoplayBlocked('видео'));
     }
+
+    // Buffering handling for native MP4
+    video.addEventListener('waiting', () => {
+      if (state.socket && state.connected) {
+        state.socket.emit('player_buffering');
+      }
+    });
+
+    video.addEventListener('canplaythrough', () => {
+      if (state.socket && state.connected) {
+        state.socket.emit('player_ready');
+      }
+    });
   }
 }
 
@@ -968,6 +1007,19 @@ function loadVideoStream(streamUrl) {
       tryUnmutePlayer();
       setStatus('📡 HLS поток готов');
       video.play().catch(() => handleAutoplayBlocked('HLS'));
+
+      // Buffering handling
+      video.addEventListener('waiting', () => {
+        if (state.socket && state.connected) {
+          state.socket.emit('player_buffering');
+        }
+      });
+
+      video.addEventListener('canplaythrough', () => {
+        if (state.socket && state.connected) {
+          state.socket.emit('player_ready');
+        }
+      });
     });
 
     window.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
@@ -997,6 +1049,19 @@ function loadVideoStream(streamUrl) {
       setStatus('📡 HLS поток готов (нативно)');
       video.play().catch(() => handleAutoplayBlocked('HLS'));
     }, { once: true });
+
+    // Buffering handling for native HLS
+    video.addEventListener('waiting', () => {
+      if (state.socket && state.connected) {
+        state.socket.emit('player_buffering');
+      }
+    });
+
+    video.addEventListener('canplaythrough', () => {
+      if (state.socket && state.connected) {
+        state.socket.emit('player_ready');
+      }
+    });
   } else {
     video.src = streamUrl;
     video.load();
@@ -1006,6 +1071,19 @@ function loadVideoStream(streamUrl) {
       hideLoading();
     }, { once: true });
     video.play().catch(() => handleAutoplayBlocked('видео'));
+
+    // Buffering handling for native MP4
+    video.addEventListener('waiting', () => {
+      if (state.socket && state.connected) {
+        state.socket.emit('player_buffering');
+      }
+    });
+
+    video.addEventListener('canplaythrough', () => {
+      if (state.socket && state.connected) {
+        state.socket.emit('player_ready');
+      }
+    });
   }
 }
 
@@ -1183,6 +1261,32 @@ function connectSocket() {
     }
   });
 
+  // ── Buffering events ────────────────────────────────────────
+  s.on('pause_for_buffering', () => {
+    const player = getActivePlayer();
+    if (player && !player.isPaused()) {
+      player.pause();
+      showSnack('⏸ Ожидание загрузки у участника...');
+    }
+    // Show buffering overlay
+    const overlay = document.getElementById('buffering-overlay');
+    if (overlay) {
+      overlay.classList.add('visible');
+    }
+  });
+
+  s.on('resume_after_buffering', () => {
+    const player = getActivePlayer();
+    if (player && player.isPaused()) {
+      player.play().catch(() => { /* ignore */ });
+    }
+    // Hide buffering overlay
+    const overlay = document.getElementById('buffering-overlay');
+    if (overlay) {
+      overlay.classList.remove('visible');
+    }
+  });
+
   // ── Инициализация комнаты для нового участника ────────────
   // Сервер отправляет init-room-state при подключении:
   // текущий URL, таймкод и статус воспроизведения.
@@ -1311,6 +1415,22 @@ function connectSocket() {
     }
   });
 
+  // ── Buffering synchronization ──────────────────────────────
+  s.on('pause_for_buffering', () => {
+    const player = getActivePlayer();
+    if (player && !player.isPaused()) {
+      player.pause();
+      showSnack('⏸ Ожидание загрузки у участника...');
+    }
+  });
+
+  s.on('resume_after_buffering', () => {
+    const player = getActivePlayer();
+    if (player && player.isPaused()) {
+      player.play().catch(() => { /* ignore */ });
+    }
+  });
+
   function applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate }) {
     if (state.isSyncing) return;
     if (state.applyingRemote) return;
@@ -1321,7 +1441,8 @@ function connectSocket() {
       return;
     }
 
-    const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);
+    const now = getServerNowMs();
+    const serverTime = anchorTime + (isPlaying ? (now - anchorTimestamp) / 1000 : 0);
     const localTime = player.getCurrentTime();
     const diff = localTime - serverTime;
     const absDiff = Math.abs(diff);
@@ -1340,31 +1461,31 @@ function connectSocket() {
     }
 
     if (!isPlaying && playerPaused) {
-      if (absDiff > 2.5) {
+      if (absDiff > 3.0) {
         player.seekTo(serverTime);
       }
       setTimeout(() => { state.isSyncing = false; }, 400);
       return;
     }
 
-    if (absDiff > 2.5) {
+    if (absDiff > 3.0) {
       player.seekTo(serverTime);
+      if (player.setPlaybackRate) {
+        player.setPlaybackRate(1.0);
+      }
       state.currentPlaybackRate = 1.0;
       console.log('[SYNC] Seek to serverTime due to large diff:', serverTime.toFixed(2), 'Diff:', diff.toFixed(2));
-      if (state.currentType === SOURCE_TYPES.NATIVE || state.currentType === SOURCE_TYPES.HLS) {
-        startNativeVideoSync(state.lastSync);
-      }
-    } else if (absDiff > 0.5) {
-      const targetRate = diff > 0 ? 0.95 : 1.05;
-      if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
-        setSupportedPlaybackRate(player, targetRate);
+    } else if (absDiff > 0.3) {
+      const targetRate = diff < 0 ? 1.08 : 0.92;
+      if (player.setPlaybackRate) {
+        player.setPlaybackRate(targetRate);
       }
       state.currentPlaybackRate = targetRate;
       console.log('[SYNC] Adjusting rate to:', targetRate, 'Diff:', diff.toFixed(2), 'absDiff:', absDiff.toFixed(2));
     } else {
       state.currentPlaybackRate = 1.0;
-      if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
-        setSupportedPlaybackRate(player, 1.0);
+      if (player.setPlaybackRate) {
+        player.setPlaybackRate(1.0);
       }
       console.log('[SYNC] Rate normalized to 1.0, Diff:', diff.toFixed(2));
     }
@@ -1969,21 +2090,22 @@ function syncDirectVideo(videoEl) {
   }
 
   const { anchorTime, anchorTimestamp, isPlaying } = state.lastSync;
-  const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);
+  const now = getServerNowMs();
+  const serverTime = anchorTime + (isPlaying ? (now - anchorTimestamp) / 1000 : 0);
 
   const diff = videoEl.currentTime - serverTime;
   const absDiff = Math.abs(diff);
 
-  if (absDiff > 2.5) {
+  if (absDiff > 3.0) {
     videoEl.currentTime = serverTime;
     videoEl.playbackRate = 1.0;
     console.log(`[SYNC MP4] Hard Seek to ${serverTime.toFixed(2)}s`);
     startNativeVideoSyncCooldown(2500);
-  } else if (absDiff > 0.4) {
+  } else if (absDiff > 0.3) {
     if (diff < 0) {
-      videoEl.playbackRate = 1.15;
+      videoEl.playbackRate = 1.08;
     } else {
-      videoEl.playbackRate = 0.85;
+      videoEl.playbackRate = 0.92;
     }
     console.log(`[SYNC MP4] Adjusting rate: ${videoEl.playbackRate}x (Diff: ${diff.toFixed(2)}s)`);
   } else {

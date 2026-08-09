@@ -156,6 +156,7 @@ function createRoomRecord(roomId, name, hostId) {
     users: new Map(),
     messages: [],
     reactions: {},
+    buffering: new Set(),
     createdAt: Date.now(),
   };
 }
@@ -534,6 +535,38 @@ io.on('connection', (socket) => {
     io.to(currentId).emit('sync-state', buildSyncState(room));
   });
 
+  // ── Buffering synchronization ──────────────────────────────────
+  socket.on('player_buffering', () => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    // Mark this socket as buffering
+    room.buffering = room.buffering || new Set();
+    room.buffering.add(socket.id);
+
+    // Pause all clients in the room
+    io.to(currentId).emit('pause_for_buffering', { bufferingSocketId: socket.id });
+    console.log(`⏸  BUFFERING | ${socket.id} | room=${currentId}`);
+  });
+
+  socket.on('player_ready', () => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    // Remove from buffering set
+    if (room.buffering) {
+      room.buffering.delete(socket.id);
+
+      // If no one is buffering anymore, resume all
+      if (room.buffering.size === 0) {
+        io.to(currentId).emit('resume_after_buffering');
+        console.log(`▶  RESUME  | room=${currentId} (all clients ready)`);
+      }
+    }
+  });
+
   socket.on('SEEK', (data) => {
     const currentId = socket.currentRoomId;
     const room = getRoom(currentId);
@@ -761,6 +794,15 @@ io.on('connection', (socket) => {
 
     if (room.users && room.users.has(socket.id)) {
       room.users.delete(socket.id);
+    }
+
+    // Handle buffering cleanup on disconnect
+    if (room.buffering && room.buffering.has(socket.id)) {
+      room.buffering.delete(socket.id);
+      if (room.buffering.size === 0) {
+        io.to(currentId).emit('resume_after_buffering');
+        console.log(`▶  RESUME  | room=${currentId} (disconnected client was buffering)`);
+      }
     }
 
     const remainingAfter = [...io.sockets.adapter.rooms.get(currentId) || []];
