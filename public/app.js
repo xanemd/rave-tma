@@ -1798,12 +1798,14 @@ function handleRemotePlay(data) {
         const video = els.nativeVideo;
         const desired = targetTime || 0;
 
-        if (video.readyState < 2 && desired > 0) {
-          video.addEventListener('loadedmetadata', () => {
-            try { video.currentTime = desired; } catch (e) { /* ignore */ }
-          }, { once: true });
-        } else if (Math.abs((video.currentTime || 0) - desired) > SYNC_THRESHOLD_SECONDS && desired > 0) {
-          video.currentTime = desired;
+        if (desired > 0) {
+          if (video.readyState >= 2) {
+            video.currentTime = desired;
+          } else {
+            video.addEventListener('loadedmetadata', () => {
+              try { video.currentTime = desired; } catch (e) { /* ignore */ }
+            }, { once: true });
+          }
         }
 
         video.play().catch(() => handleAutoplayBlocked('видео'));
@@ -1887,12 +1889,14 @@ function handleRemoteSeek(data) {
       case SOURCE_TYPES.NATIVE:
       case SOURCE_TYPES.HLS: {
         const video = els.nativeVideo;
-        if (video.readyState < 2) {
-          video.addEventListener('loadedmetadata', () => {
-            try { video.currentTime = seekTo; } catch (e) { /* ignore */ }
-          }, { once: true });
-        } else if (Math.abs((video.currentTime || 0) - seekTo) > SYNC_THRESHOLD_SECONDS) {
-          video.currentTime = seekTo;
+        if (seekTo > 0) {
+          if (video.readyState >= 2) {
+            video.currentTime = seekTo;
+          } else {
+            video.addEventListener('loadedmetadata', () => {
+              try { video.currentTime = seekTo; } catch (e) { /* ignore */ }
+            }, { once: true });
+          }
         }
         break;
       }
