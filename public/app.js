@@ -37,6 +37,7 @@ const SOURCE_TYPES = {
   HLS: 'hls',
   NATIVE: 'native',
   IFRAME: 'iframe',
+  STREAM_REQUIRED: 'stream_required',
   UNKNOWN: 'unknown'
 };
 
@@ -301,10 +302,7 @@ function parseUrl(rawUrl) {
     parsed.pathname.includes('/video') ||
     parsed.pathname.includes('/embed')
   ) {
-    const embedUrl = buildEmbedUrl(parsed);
-    if (embedUrl) {
-      return { type: SOURCE_TYPES.IFRAME, payload: { embedUrl, originalUrl: url } };
-    }
+    return { type: SOURCE_TYPES.STREAM_REQUIRED, payload: { url } };
   }
 
   // Фолбэк: любой http(s) URL — iframe
@@ -810,8 +808,8 @@ function loadNativeOrHls(url, autoplay = false) {
         try { window.hlsInstance.destroy(); } catch (e) { /* ignore */ }
       }
       window.hlsInstance = new Hls({
-        maxBufferLength: 30,
-        maxMaxBufferLength: 60,
+        maxBufferLength: 60,
+        maxMaxBufferLength: 120,
         enableWorker: true,
       });
 
@@ -904,9 +902,112 @@ function loadVimeoVideo(videoId, autoplay = false) {
   setStatus('⏳ Vimeo загружается…');
 }
 
+async function resolveStreamUrl(rawUrl, autoplay, emit, incoming) {
+  showLoading('Получаю ссылку на поток…');
+  setStatus('⏳ Парсинг видео…');
+
+  try {
+    const response = await fetch('/api/get-stream-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: rawUrl }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error || 'Не удалось получить поток');
+    }
+
+    const streamUrl = String(data.streamUrl || '').trim();
+    if (!streamUrl) {
+      throw new Error('Пустой поток');
+    }
+
+    hideLoading();
+    loadMedia(streamUrl, { emit, autoplay, incoming });
+  } catch (e) {
+    console.error('[Stream] Ошибка получения потока:', e);
+    hideLoading();
+    showSnack('❌ ' + (e.message || 'Не удалось распарсить ссылку'));
+    setStatus('⚠️ Ошибка парсинга');
+  }
+}
+
+function loadVideoStream(streamUrl) {
+  if (!streamUrl) return;
+
+  const lower = String(streamUrl).toLowerCase();
+  showOnlyShell('video');
+  resetPlayers(true);
+  showLoading('Загрузка потока…');
+
+  const video = els.nativeVideo;
+  video.setAttribute('data-raw-url', streamUrl);
+
+  if (lower.includes('.m3u8') && typeof Hls !== 'undefined' && Hls.isSupported()) {
+    if (window.hlsInstance) {
+      try { window.hlsInstance.destroy(); } catch (e) { /* ignore */ }
+    }
+
+    window.hlsInstance = new Hls({
+      maxBufferLength: 60,
+      maxMaxBufferLength: 120,
+      enableWorker: true,
+    });
+
+    window.hlsInstance.loadSource(streamUrl);
+    window.hlsInstance.attachMedia(video);
+
+    window.hlsInstance.on(Hls.Events.MANIFEST_PARSED, () => {
+      clearTimeout(fallbackTimer);
+      hideLoading();
+      tryUnmutePlayer();
+      setStatus('📡 HLS поток готов');
+      video.play().catch(() => handleAutoplayBlocked('HLS'));
+    });
+
+    window.hlsInstance.on(Hls.Events.ERROR, (event, data) => {
+      if (data && data.fatal) {
+        console.error('[HLS] Фатальная ошибка:', data);
+        setStatus('⚠️ Ошибка HLS-потока');
+        switch (data.type) {
+          case Hls.ErrorTypes.NETWORK_ERROR:
+            window.hlsInstance.startLoad();
+            break;
+          case Hls.ErrorTypes.MEDIA_ERROR:
+            window.hlsInstance.recoverMediaError();
+            break;
+          default:
+            state.currentUrl = '';
+            hideLoading();
+            break;
+        }
+      }
+    });
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = streamUrl;
+    video.addEventListener('loadedmetadata', () => {
+      clearTimeout(fallbackTimer);
+      hideLoading();
+      tryUnmutePlayer();
+      setStatus('📡 HLS поток готов (нативно)');
+      video.play().catch(() => handleAutoplayBlocked('HLS'));
+    }, { once: true });
+  } else {
+    video.src = streamUrl;
+    video.load();
+    tryUnmutePlayer();
+    video.addEventListener('loadedmetadata', () => {
+      clearTimeout(fallbackTimer);
+      hideLoading();
+    }, { once: true });
+    video.play().catch(() => handleAutoplayBlocked('видео'));
+  }
+}
+
 /* ═══════════════════════════════════════════════════════════
-   8. ОСНОВНАЯ ТОЧКА ВХОДА ЗАГРУЗКИ МЕДИА
-   ═══════════════════════════════════════════════════════════ */
+    8. ОСНОВНАЯ ТОЧКА ВХОДА ЗАГРУЗКИ МЕДИА
+    ═══════════════════════════════════════════════════════════ */
 
 function loadMedia(rawUrl, opts = {}) {
   const { emit = true, autoplay = false, incoming = false } = opts;
@@ -951,6 +1052,15 @@ function loadMedia(rawUrl, opts = {}) {
     case SOURCE_TYPES.IFRAME:
       loadIframe(parsed.payload.embedUrl);
       break;
+
+    case SOURCE_TYPES.STREAM_REQUIRED:
+      if (incoming) {
+        setStatus('⚠️ Неизвестный тип медиа');
+        hideLoading();
+        return false;
+      }
+      resolveStreamUrl(parsed.payload.url, autoplay, emit, incoming);
+      return;
 
     default:
       setStatus('⚠️ Неизвестный тип медиа');
@@ -1240,11 +1350,11 @@ function connectSocket() {
 
     if (absDiff > 2.5) {
       player.seekTo(serverTime);
-      if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
-        setSupportedPlaybackRate(player, 1.0);
-      }
       state.currentPlaybackRate = 1.0;
       console.log('[SYNC] Seek to serverTime due to large diff:', serverTime.toFixed(2), 'Diff:', diff.toFixed(2));
+      if (state.currentType === SOURCE_TYPES.NATIVE || state.currentType === SOURCE_TYPES.HLS) {
+        startNativeVideoSync(state.lastSync);
+      }
     } else if (absDiff > 0.5) {
       const targetRate = diff > 0 ? 0.95 : 1.05;
       if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
@@ -1253,10 +1363,10 @@ function connectSocket() {
       state.currentPlaybackRate = targetRate;
       console.log('[SYNC] Adjusting rate to:', targetRate, 'Diff:', diff.toFixed(2), 'absDiff:', absDiff.toFixed(2));
     } else {
+      state.currentPlaybackRate = 1.0;
       if (state.currentType !== SOURCE_TYPES.NATIVE && state.currentType !== SOURCE_TYPES.HLS) {
         setSupportedPlaybackRate(player, 1.0);
       }
-      state.currentPlaybackRate = 1.0;
       console.log('[SYNC] Rate normalized to 1.0, Diff:', diff.toFixed(2));
     }
 
@@ -1858,6 +1968,11 @@ function syncDirectVideo(videoEl, syncParams) {
   const { anchorTime, anchorTimestamp, isPlaying } = syncParams;
   const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);
 
+  if (videoEl.readyState < 3 || videoEl.seeking) {
+    console.log('[SYNC MP4] Buffering, skip sync');
+    return;
+  }
+
   const diff = videoEl.currentTime - serverTime;
   const absDiff = Math.abs(diff);
 
@@ -1865,6 +1980,7 @@ function syncDirectVideo(videoEl, syncParams) {
     videoEl.currentTime = serverTime;
     videoEl.playbackRate = 1.0;
     console.log(`[SYNC MP4] Hard Seek to ${serverTime.toFixed(2)}s`);
+    startNativeVideoSyncCooldown(2500);
   } else if (absDiff > 0.4) {
     if (diff < 0) {
       videoEl.playbackRate = 1.15;
@@ -1894,6 +2010,15 @@ function stopNativeVideoSync() {
     clearInterval(state.nativeVideoSyncInterval);
     state.nativeVideoSyncInterval = null;
   }
+}
+
+function startNativeVideoSyncCooldown(delayMs) {
+  stopNativeVideoSync();
+  setTimeout(() => {
+    if (state.lastSync) {
+      startNativeVideoSync(state.lastSync);
+    }
+  }, delayMs);
 }
 
 function getPlayerInterface() {

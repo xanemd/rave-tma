@@ -24,6 +24,8 @@ const path = require('path');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
+const { exec } = require('child_process');
+const fs = require('fs');
 
 const app = express();
 const server = http.createServer(app);
@@ -35,6 +37,8 @@ const io = new Server(server, {
   }
 });
 
+app.use(express.json({ limit: '1mb' }));
+
 // ─────────────────────────────────────────────────────────────
 // СТАТИКА
 // ─────────────────────────────────────────────────────────────
@@ -42,6 +46,46 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.post('/api/get-stream-url', async (req, res) => {
+  try {
+    const { url } = req.body || {};
+    const targetUrl = String(url || '').trim();
+    if (!targetUrl) {
+      return res.status(400).json({ error: 'Пустой URL' });
+    }
+
+    const ytDlpPath = path.join(__dirname, 'yt-dlp.exe');
+
+    return new Promise((resolve) => {
+      exec(
+        `"${ytDlpPath}" -g -f "best" "${targetUrl}"`,
+        { timeout: 30000 },
+        (error, stdout, stderr) => {
+          if (error) {
+            console.error('[yt-dlp] Ошибка парсинга:', targetUrl, stderr || error.message);
+            return resolve(res.status(500).json({ error: 'Не удалось распарсить ссылку' }));
+          }
+
+          const lines = String(stdout || '')
+            .split(/\r?\n/)
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0);
+
+          const streamUrl = lines[lines.length - 1] || lines[0] || '';
+          if (!streamUrl) {
+            return resolve(res.status(500).json({ error: 'Не удалось получить прямой поток' }));
+          }
+
+          resolve(res.json({ streamUrl }));
+        }
+      );
+    });
+  } catch (e) {
+    console.error('[api/get-stream-url] Исключение:', e);
+    res.status(500).json({ error: 'Не удалось распарсить ссылку' });
+  }
 });
 
 // ─────────────────────────────────────────────────────────────
