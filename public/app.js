@@ -1961,16 +1961,15 @@ function setSupportedPlaybackRate(player, targetRate) {
   }
 }
 
-function syncDirectVideo(videoEl, syncParams) {
-  if (!videoEl || videoEl.readyState < 2) return;
-
-  const { anchorTime, anchorTimestamp, isPlaying } = syncParams;
-  const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);
-
-  if (videoEl.readyState < 3 || videoEl.seeking) {
+function syncDirectVideo(videoEl) {
+  if (!state.lastSync) return;
+  if (!videoEl || videoEl.readyState < 3 || videoEl.seeking) {
     console.log('[SYNC MP4] Buffering, skip sync');
     return;
   }
+
+  const { anchorTime, anchorTimestamp, isPlaying } = state.lastSync;
+  const serverTime = anchorTime + (isPlaying ? (Date.now() - anchorTimestamp) / 1000 : 0);
 
   const diff = videoEl.currentTime - serverTime;
   const absDiff = Math.abs(diff);
@@ -2013,7 +2012,7 @@ function startNativeVideoSync(syncParams) {
     if (!video || video.readyState < 2) return;
     if (state.isHost) return;
     if (state.applyingRemote) return;
-    syncDirectVideo(video, syncParams);
+    syncDirectVideo(video);
   }, 1000);
 }
 
