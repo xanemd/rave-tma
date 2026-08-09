@@ -1439,22 +1439,6 @@ function connectSocket() {
     }
   });
 
-  // ── Buffering synchronization ──────────────────────────────
-  s.on('pause_for_buffering', () => {
-    const player = getActivePlayer();
-    if (player && !player.isPaused()) {
-      player.pause();
-      showSnack('⏸ Ожидание загрузки у участника...');
-    }
-  });
-
-  s.on('resume_after_buffering', () => {
-    const player = getActivePlayer();
-    if (player && player.isPaused()) {
-      player.play().catch(() => { /* ignore */ });
-    }
-  });
-
   function applySyncFromState({ currentTime, isPlaying }) {
     if (state.isSyncing) return;
     if (state.applyingRemote) return;
