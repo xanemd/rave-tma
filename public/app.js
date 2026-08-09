@@ -481,6 +481,9 @@ function renderPlayer(url, autoplay = false) {
     container.innerHTML = `<video src="${url}" controls ${autoplay ? 'autoplay' : ''} playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>`;
     const v = container.querySelector('video');
     if (v) {
+      if (!autoplay) {
+        try { v.pause(); } catch (e) { /* ignore */ }
+      }
       v.addEventListener('error', () => {
         console.error('[Player] Fallback видео не загрузилось:', url);
         setStatus('⚠️ Видео не загрузилось — сервер может блокировать внешние ссылки');
@@ -652,6 +655,8 @@ function loadYouTubeVideo(videoId, autoplay = false) {
                 }
               } catch (err) { /* ignore */ }
             }, 1500);
+          } else {
+            try { event.target.pauseVideo(); } catch (e) { /* ignore */ }
           }
         },
         onStateChange: handleYouTubeStateChange,
@@ -910,6 +915,8 @@ function loadNativeOrHls(url, autoplay = false, startTime = 0) {
     }, { once: true });
     if (autoplay) {
       video.play().catch(() => handleAutoplayBlocked('видео'));
+    } else {
+      try { video.pause(); } catch (e) { /* ignore */ }
     }
 
     // Buffering handling for native MP4

@@ -425,7 +425,7 @@ io.on('connection', (socket) => {
     });
 
   // ── Смена видео (хост) ────────────────────────────────────────
-  const handleVideoChange = (roomId, url, type) => {
+  const handleVideoChange = (roomId, url, type, senderSocket) => {
     const room = getRoom(roomId);
     if (!room) return;
 
@@ -438,8 +438,9 @@ io.on('connection', (socket) => {
     console.log(`🎬 MEDIA  | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
     console.log('📡 SYNC_STATE payload:', JSON.stringify(buildSyncState(room)).slice(0, 200));
 
-    io.to(roomId).emit('video_changed', { mediaUrl: url, currentTime: 0, isPlaying: false });
-    io.to(roomId).emit('sync_state', buildSyncState(room));
+    const target = senderSocket ? senderSocket.to(roomId) : io.to(roomId);
+    target.emit('video_changed', { mediaUrl: url, currentTime: 0, isPlaying: false });
+    target.emit('sync_state', buildSyncState(room));
   };
 
   socket.on('CHANGE_MEDIA', (data) => {
@@ -456,7 +457,7 @@ io.on('connection', (socket) => {
     const type = String(data?.mediaType || '').slice(0, 32);
     if (!url) return;
 
-    handleVideoChange(currentId, url, type);
+    handleVideoChange(currentId, url, type, socket);
   });
 
   socket.on('change-video', ({ roomId, url }) => {
@@ -472,7 +473,7 @@ io.on('connection', (socket) => {
     const normalizedUrl = String(url || '').slice(0, 2000);
     if (!normalizedUrl) return;
 
-    handleVideoChange(targetRoomId, normalizedUrl, 'unknown');
+    handleVideoChange(targetRoomId, normalizedUrl, 'unknown', socket);
   });
 
   // ── Выход из комнаты ────────────────────────────────────────
@@ -508,7 +509,7 @@ io.on('connection', (socket) => {
     room.playbackRate = 1.0;
 
     console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-     io.to(currentId).emit('sync_state', buildSyncState(room));
+     socket.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
    socket.on('PAUSE', (data) => {
@@ -530,7 +531,7 @@ io.on('connection', (socket) => {
     room.playbackRate = 1.0;
 
     console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-    io.to(currentId).emit('sync_state', buildSyncState(room));
+    socket.to(currentId).emit('sync_state', buildSyncState(room));
   });
 
   // ── Buffering synchronization ──────────────────────────────────
@@ -583,7 +584,7 @@ io.on('connection', (socket) => {
     room.playbackRate = 1.0;
 
      console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-     io.to(currentId).emit('sync_state', buildSyncState(room));
+     socket.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
    // ── Динамическая синхронизация (Rave: Server-side Master Clock) ───
@@ -614,7 +615,7 @@ io.on('connection', (socket) => {
       room.playbackRate = 1.0;
     }
 
-     io.to(roomId).emit('sync_state', buildSyncState(room));
+      io.to(roomId).emit('sync_state', buildSyncState(room));
   });
 
    socket.on('toggle_play', () => {
@@ -631,7 +632,7 @@ io.on('connection', (socket) => {
     room.isPlaying = !room.isPlaying;
     room.lastUpdated = Date.now();
 
-    io.to(currentId).emit('sync_state', buildSyncState(room));
+    socket.to(currentId).emit('sync_state', buildSyncState(room));
   });
 
   // ── Периодическая синхронизация времени от хоста ─────────────
@@ -658,10 +659,10 @@ io.on('connection', (socket) => {
       room.isPlaying = false;
     }
 
-     io.to(currentId).emit('sync_state', buildSyncState(room));
+      io.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
-  // ── Очередь видео ──────────────────────────────────────────
+   // ── Очередь видео ──────────────────────────────────────────
   socket.on('ADD_TO_QUEUE', (data) => {
     const currentId = socket.currentRoomId;
     const room = getRoom(currentId);
@@ -714,8 +715,8 @@ io.on('connection', (socket) => {
 
     console.log(`⏭ NEXT   | ${socket.id} | room=${currentId} | ${next.url.slice(0, 50)}`);
 
-     io.to(currentId).emit('sync_state', buildSyncState(room));
-     io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
+      socket.to(currentId).emit('sync_state', buildSyncState(room));
+      io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
   });
 
   // ── Чат ─────────────────────────────────────────────────────
