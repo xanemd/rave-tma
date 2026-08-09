@@ -447,7 +447,7 @@ function extractYouTubeId(url) {
  * Монтирует плеер в DOM: iframe для YouTube / video для прямых ссылок.
  * Критично для инициализации плеера при получении ROOM_STATE / video-changed.
  */
-function renderPlayer(url) {
+function renderPlayer(url, autoplay = false) {
   const container = document.getElementById('player-container');
   const welcome = document.getElementById('welcome-screen') || document.getElementById('placeholder');
 
@@ -474,10 +474,11 @@ function renderPlayer(url) {
   state.currentUrl = url;
 
   const ytId = extractYouTubeId(url);
+  const autoplayParam = autoplay ? 1 : 0;
   if (ytId) {
-    container.innerHTML = `<iframe src="https://www.youtube.com/embed/${ytId}?autoplay=1&playsinline=1&rel=0" style="width:100%;height:100%;border:0;" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>`;
+    container.innerHTML = `<iframe src="https://www.youtube.com/embed/${ytId}?autoplay=${autoplayParam}&playsinline=1&rel=0" style="width:100%;height:100%;border:0;" allow="autoplay; fullscreen; encrypted-media" allowfullscreen></iframe>`;
   } else {
-    container.innerHTML = `<video src="${url}" controls autoplay playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>`;
+    container.innerHTML = `<video src="${url}" controls ${autoplay ? 'autoplay' : ''} playsinline style="width:100%;height:100%;object-fit:contain;background:#000;"></video>`;
     const v = container.querySelector('video');
     if (v) {
       v.addEventListener('error', () => {
@@ -552,7 +553,7 @@ function tryLoadYouTubeApi() {
     hideLoading();
     // Если есть отложенное видео — сразу монтируем iframe fallback
     if (state.pendingYouTubeVideoId) {
-      renderPlayer('https://www.youtube.com/watch?v=' + state.pendingYouTubeVideoId);
+      renderPlayer('https://www.youtube.com/watch?v=' + state.pendingYouTubeVideoId, false);
       state.pendingYouTubeVideoId = null;
     }
     return;
@@ -581,7 +582,7 @@ function loadYouTubeVideo(videoId, autoplay = false) {
   // сразу монтируем обычный <iframe>, НЕ требующий API.
   if (state.ytApiFailed) {
     console.warn('[YouTube] API недоступен — использую iframe fallback:', videoId);
-    renderPlayer('https://www.youtube.com/watch?v=' + videoId);
+    renderPlayer('https://www.youtube.com/watch?v=' + videoId, autoplay);
     hideLoading();
     try {
       els.nowPlayingTitle.textContent = 'YouTube (iframe режим) — ' + videoId;
@@ -603,7 +604,7 @@ function loadYouTubeVideo(videoId, autoplay = false) {
         console.warn('[YouTube] API не загрузился за 8с — iframe fallback:', videoId);
         state.ytApiFailed = true;
         state.pendingYouTubeVideoId = null;
-        renderPlayer('https://www.youtube.com/watch?v=' + videoId);
+        renderPlayer('https://www.youtube.com/watch?v=' + videoId, autoplay);
         hideLoading();
       }
     }, 8000);
@@ -668,7 +669,11 @@ function loadYouTubeVideo(videoId, autoplay = false) {
   } else {
     // Плеер уже создан — скрываем загрузку сразу
     hideLoading();
-    state.ytPlayer.loadVideoById(videoId, 0, autoplay ? 'large' : 'default');
+    if (autoplay) {
+      state.ytPlayer.loadVideoById(videoId, 0, 'large');
+    } else {
+      state.ytPlayer.cueVideoById(videoId, 0, 'default');
+    }
   }
 }
 
@@ -781,7 +786,7 @@ function loadNativeOrHls(url, autoplay = false, startTime = 0) {
       fallbackDone = true;
       console.warn('[Video] Загрузка зависла — fallback renderPlayer:', url);
       hideLoading();
-      renderPlayer(url);
+      renderPlayer(url, false);
     }
   }, 8000);
 
@@ -791,8 +796,7 @@ function loadNativeOrHls(url, autoplay = false, startTime = 0) {
     clearTimeout(fallbackTimer);
     console.warn('[Video] Ошибка загрузки — fallback renderPlayer:', url);
     hideLoading();
-    // renderPlayer сам запишет state.currentUrl — не даём циклу перезагрузки
-    renderPlayer(url);
+    renderPlayer(url, false);
   };
 
   video.addEventListener('loadedmetadata', () => {
@@ -1372,7 +1376,7 @@ function connectSocket() {
     applyRoomState(data);
     // Гарантия монтирования плеера (фолбэк, если rich-пайплайн не сработал)
     if (data && (data.currentUrl || data.mediaUrl) && !isMediaMounted() && !isFallbackMounted()) {
-      renderPlayer(data.currentUrl || data.mediaUrl);
+      renderPlayer(data.currentUrl || data.mediaUrl, false);
     }
   });
 
