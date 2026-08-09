@@ -912,6 +912,9 @@ function loadNativeOrHls(url, autoplay = false, startTime = 0) {
       if (!state.isHost && state.lastSync) {
         startNativeVideoSync(state.lastSync);
       }
+      if (!autoplay) {
+        try { video.pause(); } catch (e) { /* ignore */ }
+      }
     }, { once: true });
     if (autoplay) {
       video.play().catch(() => handleAutoplayBlocked('видео'));
