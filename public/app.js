@@ -1993,8 +1993,21 @@ function syncDirectVideo(videoEl, syncParams) {
 }
 
 function startNativeVideoSync(syncParams) {
+  if (!syncParams) {
+    // Если syncParams нет, ждём их появления
+    if (!state.waitingForSyncParams) {
+      state.waitingForSyncParams = true;
+      const checkInterval = setInterval(() => {
+        if (state.lastSync) {
+          clearInterval(checkInterval);
+          state.waitingForSyncParams = false;
+          startNativeVideoSync(state.lastSync);
+        }
+      }, 500);
+    }
+    return;
+  }
   stopNativeVideoSync();
-  if (!syncParams) return;
   state.nativeVideoSyncInterval = setInterval(() => {
     const video = els.nativeVideo;
     if (!video || video.readyState < 2) return;
