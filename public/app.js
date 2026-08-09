@@ -1305,9 +1305,8 @@ function connectSocket() {
   const applyRoomState = (data) => {
     console.log('[Socket] room-state ←', data);
 
-    const roomUrl = data.currentUrl;
-     // Server-authoritative: вычисляем позицию по anchorTime/anchorTimestamp
-     const roomTime = getServerAuthoritativePosition(data);
+    const roomUrl = data.mediaUrl || data.currentUrl;
+    const roomTime = getServerAuthoritativePosition(data);
     const roomPlaying = !!data.isPlaying;
 
     // Применяем currentType до инициализации плеера
@@ -1372,17 +1371,19 @@ function connectSocket() {
   s.on('ROOM_STATE', (data) => {
     applyRoomState(data);
     // Гарантия монтирования плеера (фолбэк, если rich-пайплайн не сработал)
-    if (data && data.currentUrl && !isMediaMounted() && !isFallbackMounted()) {
-      renderPlayer(data.currentUrl);
+    if (data && (data.currentUrl || data.mediaUrl) && !isMediaMounted() && !isFallbackMounted()) {
+      renderPlayer(data.currentUrl || data.mediaUrl);
     }
   });
 
+  s.on('room_state', applyRoomState);
+
   // ── Смена видео (простой путь) ─────────────────────────────
-  s.on('video-changed', ({ url } = {}) => {
+  s.on('video_changed', ({ mediaUrl, currentTime, isPlaying } = {}) => {
     if (state.isHost) return;
-    if (!url || url === state.currentUrl) return;
-    console.log('[Socket] video-changed ←', url);
-    loadMedia(url, { autoplay: false, incoming: true });
+    if (!mediaUrl || mediaUrl === state.currentUrl) return;
+    console.log('[Socket] video_changed ←', mediaUrl);
+    loadMedia(mediaUrl, { autoplay: isPlaying, incoming: true, startTime: currentTime || 0 });
   });
 
   // ── Смена хоста ────────────────────────────────────────────
@@ -1405,20 +1406,19 @@ function connectSocket() {
   // >2.5с — жёсткий seek. Также поддерживается периодический клиентский опрос.
   let lastSyncState = null;
 
-  s.on('sync-state', ({ anchorTime, anchorTimestamp, isPlaying, currentUrl, currentType, playbackRate }) => {
+  s.on('sync_state', ({ mediaUrl, currentTime, isPlaying }) => {
     if (state.isHost) return;
 
-    lastSyncState = { anchorTime, anchorTimestamp, isPlaying, currentUrl, currentType, playbackRate };
-    state.lastSync = { anchorTime, anchorTimestamp, isPlaying, currentUrl, currentType, playbackRate };
+    lastSyncState = { mediaUrl, currentTime, isPlaying };
+    state.lastSync = { mediaUrl, currentTime, isPlaying };
 
-    if (currentUrl && currentUrl !== state.currentUrl) {
-      state.currentUrl = currentUrl;
-      state.currentType = currentType || state.currentType;
-      loadMedia(currentUrl, { autoplay: isPlaying, incoming: true });
+    if (mediaUrl && mediaUrl !== state.currentUrl) {
+      state.currentUrl = mediaUrl;
+      loadMedia(mediaUrl, { autoplay: isPlaying, incoming: true, startTime: currentTime || 0 });
       return;
     }
 
-    applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate });
+    applySyncFromState({ currentTime, isPlaying });
 
     if (!state.isHost && state.currentUrl && (state.currentType === SOURCE_TYPES.NATIVE || state.currentType === SOURCE_TYPES.HLS)) {
       startNativeVideoSync(state.lastSync);
@@ -1441,18 +1441,17 @@ function connectSocket() {
     }
   });
 
-  function applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate }) {
+  function applySyncFromState({ currentTime, isPlaying }) {
     if (state.isSyncing) return;
     if (state.applyingRemote) return;
 
     const player = getActivePlayer();
     if (!player) {
-      setTimeout(() => applySyncFromState({ anchorTime, anchorTimestamp, isPlaying, playbackRate }), 500);
+      setTimeout(() => applySyncFromState({ currentTime, isPlaying }), 500);
       return;
     }
 
-    const now = getServerNowMs();
-    const serverTime = anchorTime + (isPlaying ? (now - anchorTimestamp) / 1000 : 0);
+    const serverTime = typeof currentTime === 'number' ? currentTime : 0;
     const localTime = player.getCurrentTime();
     const diff = localTime - serverTime;
     const absDiff = Math.abs(diff);
@@ -1632,24 +1631,14 @@ function onUserPlay() {
   if (state.isSyncing) return;
   const player = getActivePlayer();
   if (!player) return;
-  const time = player.getCurrentTime();
-  state.socket.emit('player-action', {
-    roomId: state.roomId,
-    action: 'play',
-    time,
-  });
+  state.socket.emit('toggle_play');
 }
 
 function onUserPause() {
   if (state.isSyncing) return;
   const player = getActivePlayer();
   if (!player) return;
-  const time = player.getCurrentTime();
-  state.socket.emit('player-action', {
-    roomId: state.roomId,
-    action: 'pause',
-    time,
-  });
+  state.socket.emit('toggle_play');
 }
 
 function onUserSeek(newTime) {
@@ -1744,6 +1733,9 @@ function getServerNowMs() {
 }
 
 function getAdjustedRemoteTime(data) {
+  if (typeof data.currentTime === 'number') {
+    return data.currentTime;
+  }
   const baseTime = typeof data.time === 'number' ? data.time : 0;
   if (typeof data.serverTime !== 'number') return baseTime;
   const elapsed = (getServerNowMs() - data.serverTime) / 1000;
@@ -1752,9 +1744,13 @@ function getAdjustedRemoteTime(data) {
 
 /**
  * Server-authoritative позиция (как в Rave):
- * если есть anchorTimestamp и isPlaying — вычисляем текущую позицию по серверному времени.
+ * Новый формат: data.currentTime — абсолютное время от сервера.
+ * Фолбэк для старого формата: anchorTime + (serverNow - anchorTimestamp) / 1000.
  */
 function getServerAuthoritativePosition(data) {
+  if (typeof data.currentTime === 'number') {
+    return data.currentTime;
+  }
   if (data.isPlaying && typeof data.anchorTimestamp === 'number') {
     const anchorTime = typeof data.anchorTime === 'number' ? data.anchorTime : 0;
     const elapsed = (getServerNowMs() - data.anchorTimestamp) / 1000;
@@ -2099,10 +2095,8 @@ function syncDirectVideo(videoEl) {
     return;
   }
 
-  const { anchorTime, anchorTimestamp, isPlaying } = state.lastSync;
+  const { currentTime: serverTime, isPlaying } = state.lastSync;
   const now = getServerNowMs();
-  const serverTime = anchorTime + (isPlaying ? (now - anchorTimestamp) / 1000 : 0);
-
   const diff = videoEl.currentTime - serverTime;
   const absDiff = Math.abs(diff);
 

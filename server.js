@@ -145,11 +145,11 @@ function createRoomRecord(roomId, name, hostId) {
     id: roomId,
     name: (name && String(name).trim().slice(0, 64)) || 'НАША СПАЛЬНЯ 😉',
     hostId,
-    currentUrl: '',
+    mediaUrl: '',
     currentType: null,
     isPlaying: false,
-    anchorTime: 0,
-    anchorTimestamp: 0,
+    currentTime: 0,
+    lastUpdated: Date.now(),
     playbackRate: 1.0,
     queue: [],
     viewers: 1,
@@ -199,27 +199,29 @@ function broadcastRoomsUpdate() {
 
 /**
  * Server-side Master Clock: вычисляет текущую позицию видео по серверному времени.
- * Если видео играет: anchorTime + (now - anchorTimestamp) / 1000
- * Если на паузе: anchorTime
+ * Если видео играет: currentTime + (now - lastUpdated) / 1000
+ * Если на паузе: currentTime
  */
 function getRoomTime(room) {
-  if (!room.isPlaying) return room.anchorTime;
+  if (!room.isPlaying) return room.currentTime;
   const now = Date.now();
-  return room.anchorTime + (now - room.anchorTimestamp) / 1000;
+  return room.currentTime + (now - room.lastUpdated) / 1000;
+}
+
+function getRoomCurrentTime(room) {
+  if (!room.isPlaying) return room.currentTime;
+  return room.currentTime + (Date.now() - room.lastUpdated) / 1000;
 }
 
 /**
  * Собирает sync-state payload — единый формат для рассылки всем клиентам.
  * Содержит текущую позицию, статус воспроизведения и метаданные видео.
  */
-function buildSyncState(room, serverTimestamp) {
+function buildSyncState(room) {
   return {
-    anchorTime: room.anchorTime,
-    anchorTimestamp: room.anchorTimestamp,
+    mediaUrl: room.mediaUrl,
+    currentTime: getRoomCurrentTime(room),
     isPlaying: room.isPlaying,
-    currentUrl: room.currentUrl,
-    currentType: room.currentType,
-    playbackRate: room.playbackRate || 1.0,
   };
 }
 
@@ -229,13 +231,9 @@ function buildSyncState(room, serverTimestamp) {
 function getRoomState(room) {
   return {
     hostId: room.hostId,
-    currentUrl: room.currentUrl,
-    currentType: room.currentType,
+    mediaUrl: room.mediaUrl,
+    currentTime: getRoomCurrentTime(room),
     isPlaying: room.isPlaying,
-    anchorTime: room.anchorTime,
-    anchorTimestamp: room.anchorTimestamp,
-    serverTime: getRoomTime(room),
-    serverTimestamp: Date.now(),
     queue: room.queue,
     viewers: room.viewers,
   };
@@ -282,7 +280,7 @@ io.on('connection', (socket) => {
       message: 'Подключено к комнате синхронизации'
     });
 
-    socket.emit('init-room-state', getRoomState(room));
+    socket.emit('room_state', getRoomState(room));
 
     if (room.messages.length > 0) {
       socket.emit('CHAT_HISTORY', { messages: room.messages.slice(-50) });
@@ -402,7 +400,7 @@ io.on('connection', (socket) => {
       message: 'Подключено к комнате синхронизации'
     });
 
-    socket.emit('init-room-state', getRoomState(room));
+    socket.emit('room_state', getRoomState(room));
 
     emitRoomUsers(room, socket);
     io.to(roomId).emit('room-users-update', buildUsersList(room, null));
@@ -431,17 +429,17 @@ io.on('connection', (socket) => {
     const room = getRoom(roomId);
     if (!room) return;
 
-    room.currentUrl = url;
+    room.mediaUrl = url;
     room.currentType = type;
-    room.anchorTime = 0;
-    room.anchorTimestamp = Date.now();
+    room.currentTime = 0;
     room.isPlaying = false;
+    room.lastUpdated = Date.now();
 
     console.log(`🎬 MEDIA  | room=${roomId} | ${type} | ${url.slice(0, 60)}`);
     console.log('📡 SYNC_STATE payload:', JSON.stringify(buildSyncState(room)).slice(0, 200));
 
-    io.to(roomId).emit('sync-state', buildSyncState(room));
-    io.to(roomId).emit('video-changed', { currentUrl: url, url });
+    io.to(roomId).emit('video_changed', { mediaUrl: url, currentTime: 0, isPlaying: false });
+    io.to(roomId).emit('sync_state', buildSyncState(room));
   };
 
   socket.on('CHANGE_MEDIA', (data) => {
@@ -505,12 +503,12 @@ io.on('connection', (socket) => {
     const time = typeof payload.time === 'number' ? payload.time : getRoomTime(room);
 
     room.isPlaying = true;
-    room.anchorTime = time;
-    room.anchorTimestamp = Date.now();
+    room.currentTime = time;
+    room.lastUpdated = Date.now();
     room.playbackRate = 1.0;
 
     console.log(`▶  PLAY   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-     io.to(currentId).emit('sync-state', buildSyncState(room));
+     io.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
    socket.on('PAUSE', (data) => {
@@ -527,12 +525,12 @@ io.on('connection', (socket) => {
     const time = typeof payload.time === 'number' ? payload.time : getRoomTime(room);
 
     room.isPlaying = false;
-    room.anchorTime = time;
-    room.anchorTimestamp = Date.now();
+    room.currentTime = time;
+    room.lastUpdated = Date.now();
     room.playbackRate = 1.0;
 
     console.log(`⏸  PAUSE  | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-    io.to(currentId).emit('sync-state', buildSyncState(room));
+    io.to(currentId).emit('sync_state', buildSyncState(room));
   });
 
   // ── Buffering synchronization ──────────────────────────────────
@@ -580,12 +578,12 @@ io.on('connection', (socket) => {
     const payload = normalizePayload(data);
     const time = typeof payload.time === 'number' ? payload.time : 0;
 
-    room.anchorTime = time;
-    room.anchorTimestamp = Date.now();
+    room.currentTime = time;
+    room.lastUpdated = Date.now();
     room.playbackRate = 1.0;
 
      console.log(`⏩ SEEK   | ${socket.id} | room=${currentId} | pos=${time.toFixed(1)}`);
-     io.to(currentId).emit('sync-state', buildSyncState(room));
+     io.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
    // ── Динамическая синхронизация (Rave: Server-side Master Clock) ───
@@ -602,21 +600,38 @@ io.on('connection', (socket) => {
 
     if (action === 'play') {
       room.isPlaying = true;
-      room.anchorTime = time;
-      room.anchorTimestamp = now;
+      room.currentTime = time;
+      room.lastUpdated = now;
       room.playbackRate = 1.0;
     } else if (action === 'pause') {
       room.isPlaying = false;
-      room.anchorTime = time;
-      room.anchorTimestamp = now;
+      room.currentTime = time;
+      room.lastUpdated = now;
       room.playbackRate = 1.0;
     } else if (action === 'seek') {
-      room.anchorTime = time;
-      room.anchorTimestamp = now;
+      room.currentTime = time;
+      room.lastUpdated = now;
       room.playbackRate = 1.0;
     }
 
-     io.to(roomId).emit('sync-state', buildSyncState(room, now));
+     io.to(roomId).emit('sync_state', buildSyncState(room));
+  });
+
+   socket.on('toggle_play', () => {
+    const currentId = socket.currentRoomId;
+    const room = getRoom(currentId);
+    if (!room) return;
+
+    if (socket.id !== room.hostId) {
+      socket.emit('ERROR', { message: 'Только хост может управлять видео' });
+      return;
+    }
+
+    room.currentTime = getRoomCurrentTime(room);
+    room.isPlaying = !room.isPlaying;
+    room.lastUpdated = Date.now();
+
+    io.to(currentId).emit('sync_state', buildSyncState(room));
   });
 
   // ── Периодическая синхронизация времени от хоста ─────────────
@@ -634,8 +649,8 @@ io.on('connection', (socket) => {
     const currentTime = typeof data.currentTime === 'number' ? data.currentTime : getRoomTime(room);
     const isPaused = typeof data.isPaused === 'boolean' ? data.isPaused : !room.isPlaying;
 
-    room.anchorTime = currentTime;
-    room.anchorTimestamp = now;
+    room.currentTime = currentTime;
+    room.lastUpdated = now;
     room.playbackRate = 1.0;
     if (!isPaused && !room.isPlaying) {
       room.isPlaying = true;
@@ -643,7 +658,7 @@ io.on('connection', (socket) => {
       room.isPlaying = false;
     }
 
-     io.to(currentId).emit('sync-state', buildSyncState(room));
+     io.to(currentId).emit('sync_state', buildSyncState(room));
    });
 
   // ── Очередь видео ──────────────────────────────────────────
@@ -691,15 +706,15 @@ io.on('connection', (socket) => {
     const next = room.queue.shift();
     if (!next) return;
 
-    room.currentUrl = next.url;
+    room.mediaUrl = next.url;
     room.currentType = next.type;
+    room.currentTime = 0;
     room.isPlaying = false;
-    room.anchorTime = 0;
-    room.anchorTimestamp = Date.now();
+    room.lastUpdated = Date.now();
 
     console.log(`⏭ NEXT   | ${socket.id} | room=${currentId} | ${next.url.slice(0, 50)}`);
 
-     io.to(currentId).emit('sync-state', buildSyncState(room));
+     io.to(currentId).emit('sync_state', buildSyncState(room));
      io.to(currentId).emit('QUEUE_UPDATED', { queue: room.queue });
   });
 
@@ -827,62 +842,43 @@ io.on('connection', (socket) => {
  setInterval(() => {
    rooms.forEach((room, roomId) => {
      if (room.isPlaying) {
-       io.to(roomId).emit('sync-state', buildSyncState(room));
+       io.to(roomId).emit('sync_state', buildSyncState(room));
      }
    });
  }, 3000);
 
 // ── Фоновый тикер: комплименты каждые 10 минут ────────────────
 const COMPLIMENTS = [
-  'Ксюня, ты самая лучшая! 💖',
-  'Ксюня, ты самая красивая! ✨',
-  'Ксюша, ты самая милая! 🌸',
-  'Ксюш, ты просто невероятная! 👑',
-  'Ксюша, ты солнышко! ☀️',
-  'У тебя самая прекрасная улыбка на свете! 😊✨',
-  'Ксюнь, ты делаешь каждый мой день ярче 🌟',
-  'Ты невероятно обаятельная! 💫',
-  'Ксюня, ты мое главное счастье 🍀',
-  'Ксюш, спасибо, что ты у меня есть ❤️',
-  'С каждым днем влюбляюсь в тебя все сильнее 💕',
-  'Ты - всё самое лучшее, что со мной случалось ✨',
-  'Лучший вечер - это вечер рядом с тобой 🌙',
-  'Уютики с Ксюшей — 100 из 10 🧸❤️',
-  'Главная достопримечательность этого вечера - ты 💖',
-  'Ксюш, обнять тебя - лучшее лекарство от любой усталости 🫂',
-  'Внимание! В комнате обнаружена самая красивая девчонка 🚨💖',
-  'Ты - 1000/10, без вариантов! 🔥',
-  'Как мне вообще так повезло с тобой? 🥺✨',
-  'Ксюша, ты просто космос! 🌌',
-  'Ты милее всех котиков в интернете, вместе взятых 🐾❤️',
-  'Ксюня - ты настоящий лучик света 💡❤️',
-  'У тебя самые красивые и добрые глаза 🥺💖',
-  'Мое сердце принадлежит только тебе 🔒❤️',
-  'Ты прекрасна в любой момент времени ✨',
-  'Осторожно: уровень милоты Ксюши зашкаливает! ⚠️💖',
-  'Официально заявляю: Ксюня - самая лучшая девочка в мире 📜❤️',
-  'Если бы за милоту давали штрафы, ты бы уже была банкротом 🚓💓',
-  'Мой любимый вид спорта - обнимать Ксюшу 🏆🫂',
-  'Ксюня - главный админ моего сердца 👑❤️',
-  'Ксюня = любовь ❤️',
-  'Принцесса 👑✨',
-  'Самая-самая! 💖',
-  'Обожаю тебя! 💕',
-  'Люблю безумно! 🔥💖',
-  'Ты чудесная! 🌸',
-  'Целую! 💋',
-  'Звезда ⭐️',
-  'Люблю люблю люблю! ❤️❤️❤️',
-  'Рядом с тобой даже самый пасмурный день становится теплым ☀️❤️',
-  'Ты - мой самый любимый повод для улыбки 💓',
-  'Ксюнь, ты - абсолютное совершенство 💯👑',
-  'Кажется, ты украла мое сердце, но я совсем не против 😉🔒',
-  'Ксюнь, ты слаще любого десерта 🧁💖',
-  'Встретить тебя - это как выбить суперприз в жизни 🍀✨',
-  'Если бы существовал конкурс на самую милую девушку, ты бы забрала все призы 🏆🌸',
-  'Ксюнь, ты просто нереальная! 💫😍',
-  'Ты не просто прекрасна, ты уникальна 👑💓',
-  'Люблю тебя до Луны и обратно! 🌌❤️',
+  'ксюня ты божественная 👑',
+  'ксюня ты восхитительная ✨',
+  'ксюня ты неповторимая 💎',
+  'ксюня ты очаровательная 🌸',
+  'ксюня ты шикарная 🔥',
+  'ксюня ты нежная 🌸',
+  'ксюня ты волшебная ✨',
+  'ксюня ты идеальная 💖',
+  'ксюня ты прелестная 💕',
+  'ксюня ты ангельская 👼',
+  'ксюня ты любимая ❤️',
+  'ксюня ты красивая 🔥',
+  'ксюня ты драгоценная 💎',
+  'ксюня ты невероятная 🌟',
+  'ксюня ты сногсшибательная 😍',
+  'ксюня ты уникальная 💎',
+  'ксюня ты незабываемая ✨',
+  'ксюня ты манящая 💕',
+  'ксюня ты грациозная 🕊️',
+  'ксюня ты великолепная 🌺',
+  'ксюня ты потрясающая 🌟',
+  'ксюня ты симпатичная 💕',
+  'ксюня ты милая 🌸',
+  'ксюня ты замечательная 😍',
+  'ксюня ты ласковая 🐾',
+  'ксюня ты уютная ☕️',
+  'ксюня ты добрая 🕊️',
+  'ксюня ты искренняя 💖',
+  'ксюня ты лучшая 🏆',
+  'ксюня ты чудесная 🎨'
 ];
 
 setInterval(() => {
