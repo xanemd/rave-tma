@@ -1054,11 +1054,6 @@ function loadMedia(rawUrl, opts = {}) {
       break;
 
     case SOURCE_TYPES.STREAM_REQUIRED:
-      if (incoming) {
-        setStatus('⚠️ Неизвестный тип медиа');
-        hideLoading();
-        return false;
-      }
       resolveStreamUrl(parsed.payload.url, autoplay, emit, incoming);
       return;
 

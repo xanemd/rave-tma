@@ -24,7 +24,7 @@ const path = require('path');
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { exec } = require('child_process');
+const { execFile } = require('child_process');
 const fs = require('fs');
 
 const app = express();
@@ -58,29 +58,50 @@ app.post('/api/get-stream-url', async (req, res) => {
 
     const ytDlpPath = path.join(__dirname, 'yt-dlp.exe');
 
+    if (!fs.existsSync(ytDlpPath)) {
+      console.error('[yt-dlp] Бинарник не найден:', ytDlpPath);
+      return res.status(500).json({ error: 'Парсер видео не найден на сервере' });
+    }
+
     return new Promise((resolve) => {
-      exec(
-        `"${ytDlpPath}" -g -f "best" "${targetUrl}"`,
-        { timeout: 30000 },
+      const child = execFile(
+        ytDlpPath,
+        ['-g', targetUrl],
+        { timeout: 30000, maxBuffer: 1024 * 1024 },
         (error, stdout, stderr) => {
+          const out = String(stdout || '').trim();
+          const err = String(stderr || '').trim();
+
           if (error) {
-            console.error('[yt-dlp] Ошибка парсинга:', targetUrl, stderr || error.message);
-            return resolve(res.status(500).json({ error: 'Не удалось распарсить ссылку' }));
+            console.error('[yt-dlp] Ошибка парсинга:', targetUrl);
+            console.error('[yt-dlp] stderr:', err);
+            console.error('[yt-dlp] exit code:', error.code);
+            const friendly = err.split('\n').filter((line) => line.startsWith('ERROR:')).pop();
+            return resolve(res.status(500).json({
+              error: friendly ? friendly.replace(/^ERROR:\s*/, '') : 'Не удалось распарсить ссылку',
+            }));
           }
 
-          const lines = String(stdout || '')
-            .split(/\r?\n/)
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0);
+          if (!out) {
+            console.error('[yt-dlp] Пустой stdout для:', targetUrl);
+            return resolve(res.status(500).json({ error: 'Не удалось получить прямой поток' }));
+          }
 
+          const lines = out.split(/\r?\n/).map((line) => line.trim()).filter((line) => line.length > 0);
           const streamUrl = lines[lines.length - 1] || lines[0] || '';
           if (!streamUrl) {
             return resolve(res.status(500).json({ error: 'Не удалось получить прямой поток' }));
           }
 
+          console.log('[yt-dlp] stream:', streamUrl);
           resolve(res.json({ streamUrl }));
         }
       );
+
+      child.on('error', (err) => {
+        console.error('[yt-dlp] spawn error:', err);
+        resolve(res.status(500).json({ error: 'Не удалось запустить парсер видео' }));
+      });
     });
   } catch (e) {
     console.error('[api/get-stream-url] Исключение:', e);
